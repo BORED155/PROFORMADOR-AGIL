@@ -405,3 +405,110 @@ def test_reparto_proporcional_al_precio():
     p.items = [Item(k, k, 1, receta=receta(10)) for k in "abc"]
     montos = [m for _i, _p, m in p.reparto()]
     assert round(sum(montos), 2) == 100.0 and all(round(m, 2) == m for m in montos)
+
+
+def test_descripcion_estandar():
+    from proformaapp.modelo import separar_descripcion, unir_descripcion
+    t = unir_descripcion("Exhibidor", "MDF 18 mm", "- luces\n- acrílico")
+    assert t == "Tipo: Exhibidor\nMateriales de fabricación: MDF 18 mm\nCaracterística específica:\n- luces\n- acrílico"
+    assert separar_descripcion(t) == ["Exhibidor", "MDF 18 mm", "- luces\n- acrílico"]
+    assert separar_descripcion("- texto viejo") == ["", "", "- texto viejo"]
+    assert unir_descripcion("", "", "") == ""
+
+
+def test_modulos_descripcion_en_tres_campos(datos):
+    """Módulos muestra Tipo / Materiales / Característica; un texto viejo cae en Característica."""
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from proformaapp import informes
+    from proformaapp.ui import ventana as v
+    w = v.VentanaPrincipal(datos)
+    pm = w.pest_modulos
+    pm.lista.setCurrentRow(0)
+    alfa = pm.actual()
+    assert pm.d_tipo.text() == "" and pm.d_caract.toPlainText() == "- 1 BASE\n- LUCES"
+    pm.d_tipo.setText("Exhibidor de piso")
+    pm.d_materiales.setText("MDF 18 mm")
+    assert alfa.descripcion == ("Tipo: Exhibidor de piso\nMateriales de fabricación: MDF 18 mm\n"
+                                "Característica específica:\n- 1 BASE\n- LUCES")
+    assert informes._linea_descripcion("Tipo: Exhibidor") == "<b>Tipo:</b> Exhibidor"
+
+
+def test_paquete_modulos_ida_y_vuelta(datos, tmp_path):
+    from proformaapp import paquete
+    from proformaapp.modelo import Material, Modulo
+    alfa = datos.modulos[0]
+    (datos.fotos / "alfa.png").write_bytes(b"PNG-ALFA")
+    alfa.foto, alfa.descripcion = "alfa.png", "Tipo: Exhibidor"
+    zipf = tmp_path / "modulos.zip"
+    assert paquete.exportar_modulos(datos, zipf) == 2
+    # otra PC: ya tiene un material con el mismo nombre (otro precio) y un módulo con el mismo nombre
+    otra = Datos(tmp_path / "otra")
+    otra.materiales.append(Material("x1", "Led prueba", 7.0))
+    otra.modulos.append(Modulo("m1", "MÓDULO BETA", descripcion="vieja"))
+    assert paquete.modulos_repetidos(otra, zipf) == ["Módulo beta"]
+    r = paquete.importar_modulos(otra, zipf)
+    assert r == {"modulos": 1, "reemplazados": 0, "omitidos": 1, "materiales": 3}
+    nuevo = next(m for m in otra.modulos if m.nombre == "Módulo alfa de prueba")
+    assert nuevo.descripcion == "Tipo: Exhibidor" and (otra.fotos / nuevo.foto).read_bytes() == b"PNG-ALFA"
+    led = next(m for m in otra.materiales if m.nombre == "Led prueba")
+    assert led.precio == 7.0 and nuevo.receta[led.id] == 3          # se reutiliza el material existente
+    assert otra.costo_modulo(nuevo) == 2 * 100 + 3 * 7 + 2 * 50 + 50
+    # importar de nuevo reemplazando: no duplica, conserva el id del módulo de aquí
+    r = paquete.importar_modulos(otra, zipf, reemplazar=True)
+    assert r["reemplazados"] == 2 and r["modulos"] == 0 and r["materiales"] == 0 and len(otra.modulos) == 2
+    beta = next(m for m in otra.modulos if m.nombre == "Módulo beta")
+    assert beta.id == "m1" and beta.descripcion == ""
+    assert len(Datos(otra.carpeta).modulos) == 2                      # quedó guardado
+    with pytest.raises(ValueError, match="MÓDULOS"):
+        paquete.importar_historial(otra, zipf)
+
+
+def test_paquete_historial_ida_y_vuelta(datos, tmp_path):
+    from proformaapp import paquete
+    from proformaapp.modelo import Cliente, Gasto
+    p = datos.nueva_proforma()
+    p.cliente_id, p.titulo = datos.clientes[0].id, "Kywi"
+    p.items.append(datos.item_de(datos.modulos[0], 2))
+    (datos.fotos / "final.png").write_bytes(b"FINAL")
+    p.imagen = "final.png"
+    datos.guardar_proforma(p)
+    (datos.comprobantes / "g1.xml").write_text("<factura/>")
+    datos.gastos.append(Gasto("g1", p.id, proveedor="Ferretería", total=10, archivo="g1.xml"))
+    datos.guardar()
+    zipf = tmp_path / "historial.zip"
+    assert paquete.exportar_historial(datos, zipf) == 1
+    # otra PC: ya tiene el mismo cliente (otro id, mismo RUC) y una proforma N.º 1 distinta
+    otra = Datos(tmp_path / "otra")
+    otra.clientes.append(Cliente("c9", "Empresa Ficticia", ruc="1799999999001"))
+    otra.guardar_proforma(otra.nueva_proforma())
+    r = paquete.importar_historial(otra, zipf)
+    assert (r["proformas"], r["renumeradas"], r["clientes"], r["gastos"]) == (1, 1, 0, 1)
+    q = next(x for x in otra.proformas if x.id == p.id)
+    assert q.numero == 2 and q.cliente_id == "c9" and q.total() == p.total()
+    assert (otra.fotos / q.imagen).read_bytes() == b"FINAL"
+    assert (otra.comprobantes / otra.gastos_de(q.id)[0].archivo).read_text() == "<factura/>"
+    assert otra.empresa_de(q).nombre == datos.empresa_de(p).nombre
+    # importar otra vez: sin reemplazar no duplica; reemplazando conserva su N.º y no duplica gastos
+    assert paquete.proformas_repetidas(otra, zipf) == [1]
+    assert paquete.importar_historial(otra, zipf)["omitidas"] == 1 and len(otra.proformas) == 2
+    r = paquete.importar_historial(otra, zipf, reemplazar=True)
+    assert r["reemplazadas"] == 1 and otra.proforma(p.id).numero == 2 and len(otra.gastos_de(p.id)) == 1
+
+
+def test_botones_exportar_importar(datos, tmp_path):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from proformaapp.ui import ventana as v
+    w = v.VentanaPrincipal(datos)
+    p = datos.nueva_proforma()
+    p.items.append(datos.item_de(datos.modulos[0]))
+    datos.guardar_proforma(p)
+    assert w.exportar_paquete("modulos", str(tmp_path / "m"))
+    assert w.exportar_paquete("historial", str(tmp_path / "h.zip"))
+    w2 = v.VentanaPrincipal(Datos(tmp_path / "otra"))
+    assert w2.importar_paquete("modulos", str(tmp_path / "m.zip"))
+    assert w2.importar_paquete("historial", str(tmp_path / "h.zip"))
+    assert w2.pest_modulos.lista.count() == 2 and w2.pest_historial.t.rowCount() == 1
+    assert len(w2.datos.empresas) == 1 and w2.datos.empresa.id == datos.empresa.id
+    assert not w2.importar_paquete("modulos", str(tmp_path / "h.zip"))   # paquete equivocado: avisa

@@ -19,9 +19,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QComplet
                                QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from .. import informes
+from .. import paquete
 from ..importar import exportar_materiales, importar
 from ..modelo import (IVA_OPCIONES, OPCIONALES, TIPO_DISENO, TIPO_INVERSION, TIPO_MATERIAL, Adicional, Cliente, Datos, Empresa, Item, Material,
-                      Modulo, Proforma, nuevo_id, redondear)
+                      Modulo, Proforma, nuevo_id, redondear, separar_descripcion, unir_descripcion)
 
 ESTILO = """
 QMainWindow, QDialog { background: #f5f7f9; }
@@ -650,10 +651,19 @@ class PestanaHistorial(QWidget):
         b_borrar = QPushButton("Eliminar")
         b_borrar.setObjectName("rojo")
         b_borrar.clicked.connect(self.eliminar)
+        b_exp = QPushButton("Exportar historial…")
+        b_exp.setToolTip("Guarda todas las proformas (con clientes, gastos, fotos y comprobantes) en un archivo "
+                         ".zip para llevarlas a otra PC")
+        b_exp.clicked.connect(lambda: self.v.exportar_paquete("historial"))
+        b_imp = QPushButton("Importar historial…")
+        b_imp.setToolTip("Agrega las proformas de un archivo .zip exportado desde otra PC")
+        b_imp.clicked.connect(lambda: self.v.importar_paquete("historial"))
         fila = QHBoxLayout()
         fila.addWidget(b_abrir)
         fila.addWidget(b_dup)
         fila.addStretch(1)
+        fila.addWidget(b_exp)
+        fila.addWidget(b_imp)
         fila.addWidget(b_borrar)
         lay = QVBoxLayout(self)
         lay.addWidget(self.t)
@@ -737,11 +747,28 @@ class PestanaModulos(QWidget):
         fb.addWidget(b_dup)
         fb.addWidget(b_borrar)
         li.addLayout(fb)
+        b_exp = QPushButton("Exportar…")
+        b_exp.setToolTip("Guarda todos los módulos (receta, materiales y fotos) en un archivo .zip para llevarlos "
+                         "a otra PC")
+        b_exp.clicked.connect(lambda: self.v.exportar_paquete("modulos"))
+        b_imp = QPushButton("Importar…")
+        b_imp.setToolTip("Agrega los módulos de un archivo .zip exportado desde otra PC")
+        b_imp.clicked.connect(lambda: self.v.importar_paquete("modulos"))
+        fb2 = QHBoxLayout()
+        fb2.addWidget(b_exp)
+        fb2.addWidget(b_imp)
+        li.addLayout(fb2)
 
         self.nombre = QLineEdit()
-        self.descripcion = QPlainTextEdit()
-        self.descripcion.setPlaceholderText("Lo que verá el cliente en la proforma (una característica por línea)")
-        self.descripcion.setMaximumHeight(120)
+        # descripción estándar: tres campos que el cliente verá en la proforma
+        self.d_tipo = QLineEdit()
+        self.d_tipo.setPlaceholderText("Ej.: Exhibidor de piso para fregaderos")
+        self.d_materiales = QLineEdit()
+        self.d_materiales.setPlaceholderText("Ej.: MDF 18 mm, acrílico, perfilería de aluminio")
+        self.d_caract = QPlainTextEdit()
+        self.d_caract.setPlaceholderText("Una característica por línea")
+        self.d_caract.setMaximumHeight(110)
+        self.descripcion = (self.d_tipo, self.d_materiales, self.d_caract)
         self.ancho, self.alto, self.prof = spin(0, 100, 2, " m"), spin(0, 100, 2, " m"), spin(0, 100, 2, " m")
         self.foto = QLabel()
         self.foto.setFixedSize(150, 150)
@@ -751,10 +778,13 @@ class PestanaModulos(QWidget):
         b_foto.clicked.connect(self.elegir_foto)
         for w in (self.nombre, self.ancho, self.alto, self.prof):
             (w.textChanged if isinstance(w, QLineEdit) else w.valueChanged).connect(self.guardar)
-        self.descripcion.textChanged.connect(self.guardar)
+        for w in self.descripcion:
+            w.textChanged.connect(self.guardar)
         form = QFormLayout()
         form.addRow("Nombre:", self.nombre)
-        form.addRow("Descripción:", self.descripcion)
+        form.addRow("Tipo:", self.d_tipo)
+        form.addRow("Materiales de fabricación:", self.d_materiales)
+        form.addRow("Característica específica:", self.d_caract)
         medidas = QHBoxLayout()
         for t, w in (("Ancho", self.ancho), ("Alto", self.alto), ("Prof.", self.prof)):
             medidas.addWidget(QLabel(t))
@@ -844,11 +874,14 @@ class PestanaModulos(QWidget):
     def mostrar(self, *_a) -> None:
         m = self.actual()
         self._cargando = True
-        for w in (self.nombre, self.descripcion, self.ancho, self.alto, self.prof):
+        for w in (self.nombre, *self.descripcion, self.ancho, self.alto, self.prof):
             w.setEnabled(m is not None)
         if m is not None:
             self.nombre.setText(m.nombre)
-            self.descripcion.setPlainText(m.descripcion)
+            tipo, materiales, caract = separar_descripcion(m.descripcion)
+            self.d_tipo.setText(tipo)
+            self.d_materiales.setText(materiales)
+            self.d_caract.setPlainText(caract)
             self.ancho.setValue(m.ancho)
             self.alto.setValue(m.alto)
             self.prof.setValue(m.prof)
@@ -882,7 +915,7 @@ class PestanaModulos(QWidget):
         if self._cargando or m is None:
             return
         m.nombre = self.nombre.text()
-        m.descripcion = self.descripcion.toPlainText()
+        m.descripcion = unir_descripcion(self.d_tipo.text(), self.d_materiales.text(), self.d_caract.toPlainText())
         m.ancho, m.alto, m.prof = self.ancho.value(), self.alto.value(), self.prof.value()
         self.lista.currentItem().setText(m.nombre)
         self.datos.guardar()
@@ -1485,6 +1518,90 @@ class VentanaPrincipal(QMainWindow):
                                                    f"módulos, {r['clientes']} clientes y {r['fotos']} fotos nuevos.\n\n"
                                                    f"{r['sin_cambios']} ya existían con el mismo nombre y no se "
                                                    "modificaron.")
+        return True
+
+    # --- pasar módulos / historial a otra PC ----------------------------------------------------
+    def exportar_paquete(self, tipo: str, ruta: str | None = None) -> bool:
+        modulos = tipo == "modulos"
+        if not (self.datos.modulos if modulos else self.datos.proformas):
+            QMessageBox.information(self, "Exportar", "Todavía no hay " + ("módulos" if modulos else "proformas")
+                                    + " para exportar.")
+            return False
+        if not ruta:
+            inicio = Path.home() / "Descargas"
+            from .. import NOMBRE_APP
+            nombre = ("Módulos" if modulos else "Historial") + f" - {NOMBRE_APP} {dt.date.today():%d-%m-%Y}.zip"
+            ruta, _ = QFileDialog.getSaveFileName(self, "Exportar " + ("módulos" if modulos else "historial"),
+                                                  str((inicio if inicio.is_dir() else Path.home()) / nombre),
+                                                  "Paquete (*.zip)")
+        if not ruta:
+            return False
+        if not ruta.lower().endswith(".zip"):
+            ruta += ".zip"
+        try:
+            n = (paquete.exportar_modulos if modulos else paquete.exportar_historial)(self.datos, Path(ruta))
+        except Exception as e:  # noqa: BLE001 - se informa al usuario
+            QMessageBox.warning(self, "No se pudo exportar", str(e))
+            return False
+        que = f"{n} módulos" if modulos else f"{n} proformas"
+        pestana = "Módulos" if modulos else "Historial"
+        QMessageBox.information(self, "Exportado", f"Se exportaron {que} a:\n{ruta}\n\nEn la otra PC: pestaña "
+                                f"{pestana} → «{'Importar…' if modulos else 'Importar historial…'}» y elija este archivo.")
+        return True
+
+    def importar_paquete(self, tipo: str, ruta: str | None = None, reemplazar: bool | None = None) -> bool:
+        modulos = tipo == "modulos"
+        if not ruta:
+            inicio = Path.home() / "Descargas"
+            ruta, _ = QFileDialog.getOpenFileName(self, "Importar " + ("módulos" if modulos else "historial"),
+                                                  str(inicio if inicio.is_dir() else Path.home()), "Paquete (*.zip)")
+        if not ruta:
+            return False
+        try:
+            if reemplazar is None:
+                if modulos:
+                    rep = paquete.modulos_repetidos(self.datos, Path(ruta))
+                    lista = "\n".join(f"• {n}" for n in rep[:12]) + ("\n…" if len(rep) > 12 else "")
+                    pregunta = f"Estos {len(rep)} módulos ya existen aquí con el mismo nombre:\n\n{lista}"
+                else:
+                    rep = paquete.proformas_repetidas(self.datos, Path(ruta))
+                    lista = ", ".join(f"{n:04d}" for n in rep[:20]) + ("…" if len(rep) > 20 else "")
+                    pregunta = f"Estas {len(rep)} proformas ya están aquí: N.º {lista}"
+                reemplazar = False
+                if rep:
+                    caja = QMessageBox(QMessageBox.Question, "Ya existen", pregunta + "\n\n¿Qué hago con ellas?",
+                                       parent=self)
+                    b_rep = caja.addButton("Reemplazarlas con las del archivo", QMessageBox.AcceptRole)
+                    b_dej = caja.addButton("Dejar las de aquí", QMessageBox.RejectRole)
+                    caja.setEscapeButton(caja.addButton("Cancelar", QMessageBox.DestructiveRole))
+                    caja.exec()
+                    if caja.clickedButton() not in (b_rep, b_dej):
+                        return False
+                    reemplazar = caja.clickedButton() is b_rep
+            if modulos:
+                r = paquete.importar_modulos(self.datos, Path(ruta), reemplazar)
+            else:
+                r = paquete.importar_historial(self.datos, Path(ruta), reemplazar)
+        except Exception as e:  # noqa: BLE001 - se informa al usuario
+            QMessageBox.warning(self, "No se pudo importar", str(e))
+            return False
+        self.pest_proforma.refrescar_catalogo()
+        self.pest_modulos.refrescar()
+        self.pest_materiales.refrescar()
+        self.pest_clientes.refrescar()
+        self.pest_historial.refrescar()
+        self.pest_empresa.refrescar()
+        if modulos:
+            texto = (f"Módulos nuevos: {r['modulos']}\nReemplazados: {r['reemplazados']}\n"
+                     f"Dejados como estaban: {r['omitidos']}\nMateriales nuevos agregados: {r['materiales']}")
+        else:
+            texto = (f"Proformas nuevas: {r['proformas']}\nReemplazadas: {r['reemplazadas']}\n"
+                     f"Dejadas como estaban: {r['omitidas']}\nClientes nuevos: {r['clientes']}\n"
+                     f"Empresas nuevas: {r['empresas']}\nGastos: {r['gastos']}")
+            if r["renumeradas"]:
+                texto += (f"\n\n{r['renumeradas']} proforma(s) recibieron otro N.º porque el suyo ya estaba "
+                          "ocupado aquí por otra proforma.")
+        QMessageBox.information(self, "Importado", texto)
         return True
 
     def exportar_materiales_excel(self) -> bool:

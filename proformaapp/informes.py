@@ -6,10 +6,20 @@ import datetime as dt
 import html
 from pathlib import Path
 
-from .modelo import OPCIONALES, Datos, Proforma, redondear
+from .modelo import CAMPOS_DESCRIPCION, OPCIONALES, Datos, Proforma, _campo_de_linea, redondear
 
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
          "noviembre", "diciembre"]
+
+
+def _linea_descripcion(linea: str) -> str:
+    """Una línea de la descripción para el PDF; las etiquetas estándar («Tipo:»…) van en negrita."""
+    linea = linea.strip()
+    campo = _campo_de_linea(linea)
+    if campo is None:
+        return html.escape(linea)
+    n, resto = campo
+    return f"<b>{html.escape(CAMPOS_DESCRIPCION[n])}:</b> {html.escape(resto)}".rstrip()
 
 
 def dinero(x: float) -> str:
@@ -77,7 +87,7 @@ def html_cliente(proforma: Proforma, datos: Datos) -> str:
     for n, i in enumerate(proforma.items, 1):
         foto = datos.ruta_foto(i.foto) if proforma.con_imagenes else None
         img = f'<img src="{foto.as_uri()}" width="120">' if foto else ""
-        desc = "<br>".join(esc(l.strip()) for l in i.descripcion.splitlines() if l.strip())
+        desc = "<br>".join(_linea_descripcion(l) for l in i.descripcion.splitlines() if l.strip())
         medidas = " × ".join(medida(x) for x in (i.ancho, i.alto, i.prof) if x)
         pu = proforma.precio_unitario(i)
         filas += f"""

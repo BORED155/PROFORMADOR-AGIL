@@ -458,3 +458,50 @@ class Datos:
         else:
             self.proformas.append(proforma)
         self.guardar()
+
+
+# --- descripción estándar de un módulo -------------------------------------------------------
+CAMPOS_DESCRIPCION = ("Tipo", "Materiales de fabricación", "Característica específica")
+
+
+def _sin_tildes(texto: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn").lower()
+
+
+def _campo_de_linea(linea: str) -> tuple[int, str] | None:
+    """Si la línea empieza con «Tipo:», «Materiales de fabricación:»… devuelve (n.º de campo, resto)."""
+    plano = _sin_tildes(linea.strip())
+    for n, campo in enumerate(CAMPOS_DESCRIPCION):
+        if plano.startswith(_sin_tildes(campo) + ":"):
+            return n, linea.strip()[len(campo) + 1:].strip()
+    return None
+
+
+def separar_descripcion(texto: str) -> list[str]:
+    """Texto guardado → [tipo, materiales, característica]. Un texto viejo sin etiquetas va a «Característica»."""
+    partes: list[list[str]] = [[], [], []]
+    actual = 2
+    for linea in (texto or "").splitlines():
+        campo = _campo_de_linea(linea)
+        if campo is not None:
+            actual, resto = campo
+            if resto:
+                partes[actual].append(resto)
+        else:
+            partes[actual].append(linea)
+    return ["\n".join(p).strip() for p in partes]
+
+
+def unir_descripcion(tipo: str, materiales: str, caracteristica: str) -> str:
+    """[tipo, materiales, característica] → texto con etiquetas (se omiten los campos vacíos)."""
+    lineas = []
+    for campo, valor in zip(CAMPOS_DESCRIPCION, (tipo, materiales, caracteristica)):
+        valor = (valor or "").strip()
+        if not valor:
+            continue
+        if "\n" in valor:
+            lineas.append(f"{campo}:\n{valor}")
+        else:
+            lineas.append(f"{campo}: {valor}")
+    return "\n".join(lineas)
