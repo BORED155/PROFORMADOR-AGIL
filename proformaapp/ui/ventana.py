@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QComplet
                                QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from .. import informes
-from ..importar import importar
+from ..importar import exportar_materiales, importar
 from ..modelo import (IVA_OPCIONES, OPCIONALES, TIPO_DISENO, TIPO_INVERSION, TIPO_MATERIAL, Adicional, Cliente, Datos, Empresa, Item, Material,
                       Modulo, Proforma, nuevo_id, redondear)
 
@@ -1049,6 +1049,11 @@ class PestanaTabla(QWidget):
                              "Lo que ya tiene (mismo nombre) no se modifica.")
             b_imp.clicked.connect(lambda: self.v.importar_excel())
             fila.addWidget(b_imp)
+            b_exp = QPushButton("Exportar a Excel…")
+            b_exp.setToolTip("Guarda la lista de materiales y precios en un Excel para llevarla a otra máquina "
+                             "(allá se carga con «Importar desde Excel…»).")
+            b_exp.clicked.connect(lambda: self.v.exportar_materiales_excel())
+            fila.addWidget(b_exp)
         fila.addWidget(b_nuevo)
         fila.addWidget(b_borrar)
         arriba = QHBoxLayout()
@@ -1479,4 +1484,24 @@ class VentanaPrincipal(QMainWindow):
                                                    f"módulos, {r['clientes']} clientes y {r['fotos']} fotos nuevos.\n\n"
                                                    f"{r['sin_cambios']} ya existían con el mismo nombre y no se "
                                                    "modificaron.")
+        return True
+
+    def exportar_materiales_excel(self) -> bool:
+        if not self.datos.materiales:
+            QMessageBox.information(self, "Exportar", "Todavía no hay materiales para exportar.")
+            return False
+        inicio = Path.home() / "Descargas"
+        destino = (inicio if inicio.is_dir() else Path.home()) / "Materiales - Proformador.xlsx"
+        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar materiales a Excel", str(destino), "Excel (*.xlsx)")
+        if not ruta:
+            return False
+        if not ruta.lower().endswith(".xlsx"):
+            ruta += ".xlsx"
+        try:
+            n = exportar_materiales(self.datos, Path(ruta))
+        except Exception as e:  # noqa: BLE001 - se informa al usuario
+            QMessageBox.warning(self, "No se pudo exportar", str(e))
+            return False
+        QMessageBox.information(self, "Exportado", f"Se exportaron {n} materiales a:\n{ruta}\n\nEn la otra máquina: "
+                                "Materiales → «Importar desde Excel…» y elija este archivo.")
         return True

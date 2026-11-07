@@ -14,7 +14,7 @@ import re
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 from .modelo import Cliente, Datos, Material, Modulo, nuevo_id, tipo_por_nombre
@@ -230,3 +230,34 @@ def importar(archivo: Path, datos: Datos) -> dict[str, int]:
 
 def letra(c: int) -> str:
     return get_column_letter(c)
+
+
+def exportar_materiales(datos: Datos, archivo: Path) -> int:
+    """Guarda los materiales (nombre y precio) en un Excel con hoja RECETA, listo para volver a importar
+    en otra máquina (Materiales → Importar desde Excel…). Devuelve cuántos materiales se exportaron."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    archivo = Path(archivo)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RECETA"
+    ws["A1"] = "RECETA — materiales y precios (exportado del Proformador)"
+    ws["A1"].font = Font(bold=True, size=12, color="1F4E79")
+    ws.merge_cells("A1:B1")
+    ws["A2"] = "MATERIAL"
+    ws["B2"] = "PRECIO"
+    for celda in ("A2", "B2"):
+        ws[celda].font = Font(bold=True, color="FFFFFF")
+        ws[celda].fill = PatternFill("solid", fgColor="1F4E79")
+        ws[celda].alignment = Alignment(horizontal="center")
+    fila = 3
+    for m in datos.materiales:
+        ws.cell(fila, 1, m.nombre)
+        ws.cell(fila, 2, round(float(m.precio), 2)).number_format = "#,##0.00"
+        fila += 1
+    ws.cell(fila, 1, "TOTAL").font = Font(italic=True, color="808080")
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 14
+    ws.freeze_panes = "A3"
+    wb.save(archivo)
+    return len(datos.materiales)

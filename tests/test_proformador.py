@@ -29,6 +29,19 @@ def test_importa_recetas_y_clientes(datos):
     assert [m.nombre for m in otra.modulos] == ["Módulo alfa de prueba", "Módulo beta"]
 
 
+def test_exportar_materiales_ida_y_vuelta(datos, tmp_path):
+    from proformaapp.importar import exportar_materiales, importar
+    xlsx = tmp_path / "materiales.xlsx"
+    n = exportar_materiales(datos, xlsx)
+    assert n == len(datos.materiales)
+    # en otra máquina (base vacía) se reimporta y queda igual
+    nueva = type(datos)(tmp_path / "otra")
+    r = importar(xlsx, nueva)
+    assert r["materiales"] == n and r["modulos"] == 0
+    assert [(m.nombre, round(m.precio, 2)) for m in nueva.materiales] == \
+           [(m.nombre, round(m.precio, 2)) for m in datos.materiales]
+
+
 def test_calculos_25_por_ciento(datos):
     alfa, beta = datos.modulos
     p = datos.nueva_proforma()
