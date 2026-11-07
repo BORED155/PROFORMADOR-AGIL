@@ -1,0 +1,77 @@
+# Construye los instaladores en los servidores de GitHub.
+# - Linux: el .deb (Zorin, Ubuntu, Mint, Debian…)
+# - Windows: un .zip con proformador.exe (se copia a cualquier PC con Windows, sin instalar nada)
+# Se ejecuta a mano (Actions -> "Construir instaladores" -> Run workflow) o al publicar una etiqueta vX.Y.Z;
+# con una etiqueta, los archivos quedan en la página Releases para descargarlos.
+name: Construir instaladores
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Librerías del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 \
+            libfontconfig1 libdbus-1-3 libglib2.0-bin libnss3 libxcomposite1 libxdamage1 libxrandr2 libxtst6
+      - name: Instalar
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]" pyinstaller
+      - name: Pruebas
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+      - name: Construir el .deb
+        run: python empaquetar/construir_deb.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proformador-deb
+          path: dist/*.deb
+      - name: Publicar en Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/*.deb --title "Proformador ${{ github.ref_name }}" --notes "Instalador .deb para Linux y .zip para Windows. Descargue el archivo de su sistema." || gh release upload "${{ github.ref_name }}" dist/*.deb --clobber
+
+  windows:
+    runs-on: windows-latest
+    needs: deb          # el Release lo crea el job de Linux; aquí solo se sube el .zip
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]" pyinstaller
+      - name: Pruebas
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+      - name: Construir el .exe (zip)
+        run: python empaquetar/construir_windows.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proformador-windows
+          path: dist/*-windows.zip
+      - name: Publicar en Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" (Get-ChildItem dist/*-windows.zip) --clobber

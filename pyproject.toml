@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proformaapp"
+version = "0.1.0"
+description = "Proformador: proformas de exhibidores con receta de materiales, ganancia e informes"
+requires-python = ">=3.10"
+dependencies = ["PySide6>=6.6", "openpyxl>=3.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.gui-scripts]
+proformador = "proformaapp.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["proformaapp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
