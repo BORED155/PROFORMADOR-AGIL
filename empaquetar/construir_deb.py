@@ -29,7 +29,7 @@ SIN_USAR = ["tkinter", "pytest", "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySi
 ESCRITORIO = """[Desktop Entry]
 Type=Application
 Version=1.0
-Name=Proformador
+Name=Proformador Ágil
 GenericName=Proformas de exhibidores
 Comment=Proformas de exhibidores con receta de materiales, ganancia e informes
 Exec=/opt/proformador/proformador
@@ -87,7 +87,7 @@ Installed-Size: {tamano_kb}
 Depends: libc6 (>= 2.35), libxcb-cursor0, libxkbcommon-x11-0, libegl1, libgl1, libfontconfig1, libdbus-1-3, xdg-utils, libglib2.0-bin, libnss3, libxcomposite1, libxdamage1, libxrandr2, libxtst6, libxkbfile1
 Recommends: gtk-update-icon-cache
 Maintainer: Leninsodu <198639107+Leninsodu@users.noreply.github.com>
-Description: Proformador - proformas de exhibidores
+Description: Proformador Ágil - proformas de exhibidores
  Arma proformas de exhibidores a partir de una receta de materiales con su
  precio, calcula el costo y la ganancia, y genera informes en PDF para el
  cliente y en Excel para el control de costos. Módulos reutilizables,

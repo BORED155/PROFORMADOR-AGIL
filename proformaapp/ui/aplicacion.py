@@ -11,8 +11,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 def ejecutar(argumentos: list[str]) -> int:
     QLocale.setDefault(QLocale(QLocale.Spanish, QLocale.Ecuador))
+    from .. import NOMBRE_APP
     app = QApplication([sys.argv[0]] + argumentos)
     app.setApplicationName("Proformador")
+    app.setApplicationDisplayName(NOMBRE_APP)
     app.setDesktopFileName("proformador")
     traductor = QTranslator(app)
     if traductor.load("qtbase_es", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
@@ -23,8 +25,8 @@ def ejecutar(argumentos: list[str]) -> int:
     candado = QLockFile(str(carpeta_datos() / "proformador.lock"))
     candado.setStaleLockTime(0)
     if not candado.tryLock(200):
-        QMessageBox.information(None, "Proformador", "El Proformador ya está abierto.\n\nBusque su ventana en la barra "
-                                                     "de tareas (no se abre una segunda copia para no perder datos).")
+        QMessageBox.information(None, NOMBRE_APP, f"{NOMBRE_APP} ya está abierto.\n\nBusque su ventana en la barra "
+                                                  "de tareas (no se abre una segunda copia para no perder datos).")
         return 0
     app._candado = candado
 
@@ -33,7 +35,7 @@ def ejecutar(argumentos: list[str]) -> int:
 
     def avisar_error(tipo, valor, rastro):
         traceback.print_exception(tipo, valor, rastro)
-        QMessageBox.warning(None, "Proformador: algo falló",
+        QMessageBox.warning(None, f"{NOMBRE_APP}: algo falló",
                             f"{valor}\n\nSi se repite, cuénteselo a quien le ayuda con el programa.\n\n"
                             + "".join(traceback.format_exception(tipo, valor, rastro))[-1500:])
     sys.excepthook = avisar_error

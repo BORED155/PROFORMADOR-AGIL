@@ -1423,7 +1423,8 @@ class VentanaPrincipal(QMainWindow):
     def __init__(self, datos: Datos | None = None):
         super().__init__()
         self.datos = datos or Datos()
-        self.setWindowTitle("Proformador")
+        from .. import NOMBRE_APP
+        self.setWindowTitle(NOMBRE_APP)
         self.resize(1280, 820)
         self.setStyleSheet(ESTILO)
         self.pestanas = QTabWidget()
@@ -1491,7 +1492,7 @@ class VentanaPrincipal(QMainWindow):
             QMessageBox.information(self, "Exportar", "Todavía no hay materiales para exportar.")
             return False
         inicio = Path.home() / "Descargas"
-        destino = (inicio if inicio.is_dir() else Path.home()) / "Materiales - Proformador.xlsx"
+        destino = (inicio if inicio.is_dir() else Path.home()) / "Materiales - Proformador Ágil.xlsx"
         ruta, _ = QFileDialog.getSaveFileName(self, "Exportar materiales a Excel", str(destino), "Excel (*.xlsx)")
         if not ruta:
             return False

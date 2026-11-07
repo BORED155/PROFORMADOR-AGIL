@@ -45,7 +45,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/*.deb --title "Proformador ${{ github.ref_name }}" --notes "Instalador .deb para Linux y .zip para Windows. Descargue el archivo de su sistema." || gh release upload "${{ github.ref_name }}" dist/*.deb --clobber
+        run: gh release create "${{ github.ref_name }}" dist/*.deb --title "Proformador Ágil ${{ github.ref_name }}" --notes "Instalador .deb para Linux y .zip para Windows. Descargue el archivo de su sistema." || gh release upload "${{ github.ref_name }}" dist/*.deb --clobber
 
   windows:
     runs-on: windows-latest
