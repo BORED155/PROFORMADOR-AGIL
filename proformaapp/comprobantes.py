@@ -87,15 +87,27 @@ def leer_xml(ruta: Path) -> dict:
 
 
 def texto_pdf(ruta: Path) -> str:
-    """Texto de todas las páginas de un PDF (con QtPdf, que ya viene con PySide6)."""
-    from PySide6.QtCore import QEventLoop
+    """Texto de todas las páginas de un PDF (con QtPdf, que ya viene con PySide6).
+
+    El texto de cada página puede no estar listo justo después de cargar el documento (QtPdf lo arma en
+    segundo plano, sobre todo en Windows), así que se reintenta bombeando eventos hasta que aparezca.
+    """
+    from PySide6.QtCore import QCoreApplication, QEventLoop
     from PySide6.QtPdf import QPdfDocument
 
     doc = QPdfDocument()
     if doc.load(str(ruta)) != QPdfDocument.Error.None_:
         raise ValueError("No se pudo abrir el PDF (¿está dañado o protegido con contraseña?).")
-    QEventLoop().processEvents()
-    partes = [doc.getAllText(i).text() for i in range(doc.pageCount())]
+    app = QCoreApplication.instance()
+    partes = []
+    for i in range(doc.pageCount()):
+        texto = doc.getAllText(i).text()
+        intentos = 0
+        while not texto.strip() and app is not None and intentos < 25:
+            app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 20)
+            texto = doc.getAllText(i).text()
+            intentos += 1
+        partes.append(texto)
     doc.close()
     return "\n".join(partes)
 
