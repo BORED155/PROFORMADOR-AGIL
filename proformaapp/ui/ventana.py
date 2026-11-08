@@ -182,14 +182,21 @@ class PestanaProforma(QWidget):
         self.notas.setPlaceholderText("Nota para el cliente (opcional, sale en el PDF). Puede escribir varias líneas.")
         self.notas.setFixedHeight(96)
         self.l_cond = QListWidget()
-        self.l_cond.setFixedHeight(70)
-        self.l_cond.setStyleSheet("QListWidget::item { padding: 2px 4px; }")
+        self.l_cond.setFixedHeight(102)
+        self.l_cond.setStyleSheet("QListWidget::item { padding: 3px 4px; } QListWidget { selection-background-color: "
+                                  "#e3f2fd; selection-color: #0d47a1; }")
+        self.l_cond.setToolTip("Marque la casilla para que la condición salga en esta proforma.\n"
+                               "Doble clic (o «Editar») para corregir el texto.")
+        self.l_cond.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         self.l_cond.itemChanged.connect(self._condicion_marcada)
         self.nueva_cond = QLineEdit()
         self.nueva_cond.setPlaceholderText("Escriba una condición nueva y presione Enter…")
         self.nueva_cond.returnPressed.connect(self.agregar_condicion)
         b_cond = QPushButton("Agregar")
         b_cond.clicked.connect(self.agregar_condicion)
+        b_cond_e = QPushButton("Editar")
+        b_cond_e.setToolTip("Corrige el texto de la condición elegida (también con doble clic)")
+        b_cond_e.clicked.connect(self.editar_condicion)
         b_cond_q = QPushButton("Quitar")
         b_cond_q.setToolTip("Quita la condición elegida de la lista (para todas las proformas nuevas)")
         b_cond_q.clicked.connect(self.quitar_condicion)
@@ -204,6 +211,7 @@ class PestanaProforma(QWidget):
         fcd = QHBoxLayout()
         fcd.addWidget(self.nueva_cond, 1)
         fcd.addWidget(b_cond)
+        fcd.addWidget(b_cond_e)
         fcd.addWidget(b_cond_q)
         lcd.addLayout(fcd)
         self.notas.textChanged.connect(self._cambio)
@@ -414,14 +422,41 @@ class PestanaProforma(QWidget):
         self.l_cond.clear()
         for c in todas:
             it = QListWidgetItem(c)
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setData(Qt.UserRole, c)                   # texto anterior, para saber qué se editó
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable)
             it.setCheckState(Qt.Checked if c in self.p.condiciones else Qt.Unchecked)
             self.l_cond.addItem(it)
         self.l_cond.blockSignals(False)
 
-    def _condicion_marcada(self, *_a) -> None:
+    def _condicion_marcada(self, it: QListWidgetItem | None = None) -> None:
+        if it is not None and it.text() != it.data(Qt.UserRole):
+            self._condicion_editada(it)
+            return
         self.p.condiciones = [self.l_cond.item(f).text() for f in range(self.l_cond.count())
                               if self.l_cond.item(f).checkState() == Qt.Checked]
+
+    def editar_condicion(self) -> None:
+        it = self.l_cond.currentItem()
+        if it is None:
+            self.v.statusBar().showMessage("Elija primero la condición que quiere corregir.", 4000)
+            return
+        self.l_cond.editItem(it)
+
+    def _condicion_editada(self, it: QListWidgetItem) -> None:
+        """Cambia el texto de una condición en la lista (para las proformas nuevas) y en esta proforma."""
+        viejo = it.data(Qt.UserRole)
+        nuevo = " ".join(it.text().split()).upper()
+        otras = [self.l_cond.item(f).data(Qt.UserRole) for f in range(self.l_cond.count())
+                 if self.l_cond.item(f) is not it]
+        if nuevo and nuevo != viejo and nuevo not in otras:
+            if viejo in self.datos.condiciones:
+                self.datos.condiciones[self.datos.condiciones.index(viejo)] = nuevo
+                self.datos.guardar()
+            self.p.condiciones = [nuevo if c == viejo else c for c in self.p.condiciones]
+        elif nuevo in otras:
+            self.v.statusBar().showMessage("Esa condición ya está en la lista.", 4000)
+        fila = self.l_cond.row(it)
+        QTimer.singleShot(0, lambda: (self._mostrar_condiciones(), self.l_cond.setCurrentRow(fila)))
 
     def agregar_condicion(self) -> None:
         texto = " ".join(self.nueva_cond.text().split()).upper()

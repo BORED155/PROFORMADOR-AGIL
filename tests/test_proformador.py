@@ -512,3 +512,36 @@ def test_botones_exportar_importar(datos, tmp_path):
     assert w2.pest_modulos.lista.count() == 2 and w2.pest_historial.t.rowCount() == 1
     assert len(w2.datos.empresas) == 1 and w2.datos.empresa.id == datos.empresa.id
     assert not w2.importar_paquete("modulos", str(tmp_path / "h.zip"))   # paquete equivocado: avisa
+
+
+def test_condiciones_editables_y_casillas_visibles(datos):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage, QPainter, QColor
+    from PySide6.QtCore import QRectF
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from proformaapp.ui import ventana as v
+    from proformaapp.ui.comun import pintar_casilla
+    w = v.VentanaPrincipal(datos)
+    pp = w.pest_proforma
+    original = datos.condiciones[0]
+    it = pp.l_cond.item(0)
+    assert it.flags() & Qt.ItemIsEditable and it.checkState() == Qt.Checked
+    it.setText("entrega   en bodega")                     # como si lo editara con doble clic
+    app.processEvents()
+    assert datos.condiciones[0] == "ENTREGA EN BODEGA" and original not in datos.condiciones
+    assert "ENTREGA EN BODEGA" in pp.p.condiciones and original not in pp.p.condiciones
+    assert type(datos)(datos.carpeta).condiciones[0] == "ENTREGA EN BODEGA"
+    assert pp.l_cond.item(0).text() == "ENTREGA EN BODEGA"
+    # repetido: no se acepta
+    pp.l_cond.item(1).setText("ENTREGA EN BODEGA")
+    app.processEvents()
+    assert datos.condiciones.count("ENTREGA EN BODEGA") == 1 and len(datos.condiciones) == 2
+    # la casilla marcada es verde y la vacía blanca
+    for marcada, color in ((True, "#2e7d32"), (False, "#ffffff")):
+        img = QImage(20, 20, QImage.Format_ARGB32)
+        img.fill(QColor("#ffffff"))
+        p = QPainter(img)
+        pintar_casilla(p, QRectF(0, 0, 20, 20), marcada)
+        p.end()
+        assert img.pixelColor(5, 14).name() == color

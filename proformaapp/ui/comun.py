@@ -7,10 +7,10 @@ import subprocess
 import unicodedata
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDoubleSpinBox, QHBoxLayout, QHeaderView, QTableWidget,
-                               QTableWidgetItem, QWidget)
+from PySide6.QtCore import QPointF, QRectF, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDoubleSpinBox, QHBoxLayout, QHeaderView, QProxyStyle,
+                               QStyle, QTableWidget, QTableWidgetItem, QWidget)
 
 from .. import informes
 
@@ -79,6 +79,52 @@ class Interruptor(QCheckBox):
         p.setBrush(QColor("white"))
         p.drawEllipse(x, r.top() + 3, d, d)
         p.end()
+
+
+class EstiloCasillas(QProxyStyle):
+    """Estilo «Fusion» (igual en Windows y Linux) con casillas propias, bien visibles: cuadro verde con ✓ blanco
+    cuando está marcada y cuadro blanco con borde gris cuando no. Sirve para las QCheckBox y para las casillas de
+    las listas (por ejemplo, las condiciones del servicio)."""
+
+    LADO = 18
+
+    def __init__(self):
+        super().__init__("Fusion")
+
+    def pixelMetric(self, metrica, opcion=None, widget=None):
+        if metrica in (QStyle.PM_IndicatorWidth, QStyle.PM_IndicatorHeight):
+            return self.LADO
+        return super().pixelMetric(metrica, opcion, widget)
+
+    def drawPrimitive(self, elemento, opcion, pintor, widget=None):
+        if elemento not in (QStyle.PE_IndicatorCheckBox, QStyle.PE_IndicatorItemViewItemCheck):
+            return super().drawPrimitive(elemento, opcion, pintor, widget)
+        pintar_casilla(pintor, QRectF(opcion.rect), bool(opcion.state & QStyle.State_On),
+                       bool(opcion.state & QStyle.State_Enabled))
+
+
+def pintar_casilla(p: QPainter, rect: QRectF, marcada: bool, activa: bool = True) -> None:
+    lado = min(rect.width(), rect.height(), EstiloCasillas.LADO)
+    r = QRectF(0, 0, lado, lado)
+    r.moveCenter(rect.center())
+    r.adjust(1, 1, -1, -1)
+    p.save()
+    p.setRenderHint(QPainter.Antialiasing)
+    if marcada:
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#2e7d32" if activa else "#a5d6a7"))
+        p.drawRoundedRect(r, 4, 4)
+        trazo = QPainterPath(QPointF(r.left() + r.width() * 0.22, r.top() + r.height() * 0.52))
+        trazo.lineTo(r.left() + r.width() * 0.42, r.top() + r.height() * 0.72)
+        trazo.lineTo(r.left() + r.width() * 0.78, r.top() + r.height() * 0.30)
+        p.setPen(QPen(QColor("white"), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(trazo)
+    else:
+        p.setPen(QPen(QColor("#78909c" if activa else "#cfd8dc"), 1.6))
+        p.setBrush(QColor("white"))
+        p.drawRoundedRect(r, 4, 4)
+    p.restore()
 
 
 def centrado(w: QWidget) -> QWidget:

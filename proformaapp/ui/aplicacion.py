@@ -16,6 +16,8 @@ def ejecutar(argumentos: list[str]) -> int:
     app.setApplicationName("Proformador")
     app.setApplicationDisplayName(NOMBRE_APP)
     app.setDesktopFileName("proformador")
+    from .comun import EstiloCasillas
+    app.setStyle(EstiloCasillas())          # mismo aspecto en Windows y Linux; casillas bien visibles
     traductor = QTranslator(app)
     if traductor.load("qtbase_es", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
         app.installTranslator(traductor)
