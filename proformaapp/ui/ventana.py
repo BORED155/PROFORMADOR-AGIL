@@ -1386,8 +1386,9 @@ class PestanaEmpresa(QWidget):
         # marca de agua con el logo (cuando no hay membrete)
         self.marca_agua = QCheckBox("Poner el logo de fondo como marca de agua")
         self.marca_agua.toggled.connect(self.guardar)
-        self.intensidad = spin(1, 60, 0, " %")
-        self.intensidad.setToolTip("Qué tan visible queda el logo de fondo (8 % es suave)")
+        self.intensidad = spin(1, 100, 0, " %")
+        self.intensidad.setToolTip("Qué tan visible queda el fondo del PDF: la hoja membretada o el logo como "
+                                   "marca de agua (100 % = colores originales; 8 % = muy suave)")
         self.intensidad.valueChanged.connect(self.guardar)
         b_ejemplo = QPushButton("Ver ejemplo en PDF")
         b_ejemplo.setObjectName("azul")
@@ -1395,7 +1396,7 @@ class PestanaEmpresa(QWidget):
         b_ejemplo.clicked.connect(self.ver_ejemplo)
         fma = QHBoxLayout()
         fma.addWidget(self.marca_agua)
-        fma.addWidget(QLabel("Intensidad:"))
+        fma.addWidget(QLabel("Intensidad del fondo:"))
         fma.addWidget(self.intensidad)
         fma.addStretch(1)
         fma.addWidget(b_ejemplo)
@@ -1413,6 +1414,14 @@ class PestanaEmpresa(QWidget):
         self.validez.setSpecialValueText("no mostrar")
         self.validez.valueChanged.connect(self.guardar)
         form.addRow("Validez de la proforma:", self.validez)
+        separador = QFrame()                       # aparta la sección de hoja membretada / marca de agua
+        separador.setFrameShape(QFrame.HLine)
+        separador.setStyleSheet("color: #cfd8dc")
+        caja_sep = QWidget()
+        lsep = QVBoxLayout(caja_sep)
+        lsep.setContentsMargins(0, 14, 0, 10)
+        lsep.addWidget(separador)
+        form.addRow(caja_sep)
         form.addRow("Hoja membretada:", fm)
         form.addRow("Marca de agua:", fma)
         nota = QLabel("Las condiciones del servicio se eligen en cada proforma; los adicionales rápidos están en la "
@@ -1499,7 +1508,6 @@ class PestanaEmpresa(QWidget):
         for w in (self.memb_sup, self.memb_inf):
             w.setEnabled(bool(ruta))
         self.marca_agua.setEnabled(not ruta)
-        self.intensidad.setEnabled(not ruta)
         self.marca_agua.setToolTip("Con hoja membretada no se usa la marca de agua" if ruta else
                                    "El logo sale tenue en el centro de cada página del PDF")
 
@@ -1518,8 +1526,9 @@ class PestanaEmpresa(QWidget):
             destino = destino.with_suffix(Path(ruta).suffix.lower())
             shutil.copy2(ruta, destino)
         self.datos.empresa.membrete = destino.name
+        self.datos.empresa.marca_agua_intensidad = 100.0      # el membrete se ve completo; se puede bajar después
         self.datos.guardar()
-        self._mostrar_membrete()
+        self.mostrar()
         self.v.statusBar().showMessage("Hoja membretada guardada. Use «Ver ejemplo en PDF» para ajustar los "
                                        "espacios.", 8000)
 

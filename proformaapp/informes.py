@@ -189,13 +189,14 @@ def pdf_cliente(proforma: Proforma, datos: Datos, destino: Path) -> Path:
 
     pagina = QRectF(0, 0, px(MM_A4[0]), px(MM_A4[1]))
     membrete = datos.ruta_foto(e.membrete)
-    fondo, opacidad = None, 1.0
+    fondo = None
+    opacidad = max(1.0, min(100.0, e.marca_agua_intensidad)) / 100     # vale para el membrete y para el logo
     arriba = abajo = MARGEN_MM
     if membrete:
         fondo = QImage(str(membrete))
         arriba, abajo = max(5.0, e.membrete_sup), max(5.0, e.membrete_inf)
     elif e.marca_agua and datos.ruta_foto(e.logo):
-        fondo, opacidad = QImage(str(datos.ruta_foto(e.logo))), max(1.0, min(100.0, e.marca_agua_intensidad)) / 100
+        fondo = QImage(str(datos.ruta_foto(e.logo)))
     if fondo is not None and fondo.isNull():
         fondo = None
 

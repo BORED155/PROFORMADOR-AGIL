@@ -587,12 +587,15 @@ def test_pdf_hoja_membretada_y_marca_de_agua(datos, tmp_path):
     hoja = QImage(210, 297, QImage.Format_RGB32)
     hoja.fill(QColor("#0000ff"))
     hoja.save(str(datos.fotos / "membrete.png"))
-    e.membrete = "membrete.png"
+    e.membrete, e.marca_agua_intensidad = "membrete.png", 100
     m = informes.pdf_cliente(p, datos, tmp_path / "membrete.pdf")
     for x, y in ((0.01, 0.01), (0.99, 0.99), (0.5, 0.97)):
         c = _pixel_pdf(m, x, y)
         assert c.blue() > 240 and c.red() < 15 and c.green() < 15
     assert "logo.png" not in informes.html_cliente(p, datos)      # el membrete ya trae el logo
+    e.marca_agua_intensidad = 20                                  # la intensidad también aclara el membrete
+    c = _pixel_pdf(informes.pdf_cliente(p, datos, tmp_path / "m20.pdf"), 0.99, 0.99)
+    assert c.red() > 180 and c.blue() > 240
 
 
 def test_empresa_membrete_desde_pdf(datos, tmp_path):
@@ -613,7 +616,8 @@ def test_empresa_membrete_desde_pdf(datos, tmp_path):
         pe.elegir_membrete()
     e = datos.empresa
     assert e.membrete.endswith(".png") and datos.ruta_foto(e.membrete)
-    assert not pe.marca_agua.isEnabled() and pe.memb_sup.isEnabled()
+    assert not pe.marca_agua.isEnabled() and pe.memb_sup.isEnabled() and pe.intensidad.isEnabled()
+    assert e.marca_agua_intensidad == 100 and pe.intensidad.value() == 100
     pe.memb_sup.setValue(55)
     assert type(datos)(datos.carpeta).empresa.membrete_sup == 55
     pe.quitar_membrete()
