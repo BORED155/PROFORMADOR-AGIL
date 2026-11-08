@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import os
+import re
 import shutil
+import unicodedata
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -26,7 +29,30 @@ def tipo_por_nombre(nombre: str) -> str:
         return TIPO_INVERSION
     return TIPO_MATERIAL
 
-IVA_OPCIONES = [("artesano", "IVA 0% ARTESANO", 0.0), ("15", "IVA 15%", 0.15)]
+# el IVA se guarda como "artesano" o como su porcentaje ("15", "13", "12.5"): cada proforma conserva el suyo
+IVAS = ["artesano", "15"]
+
+
+def iva_tasa(codigo: str) -> float:
+    try:
+        return 0.0 if codigo == "artesano" else float(codigo) / 100
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def iva_texto(codigo: str) -> str:
+    return "IVA 0% ARTESANO" if codigo == "artesano" else f"IVA {str(codigo).replace('.', ',')}%"
+
+
+def leer_iva(texto: str) -> str | None:
+    """Lo elegido o escrito («13», «12,5 %», «IVA 15%», «IVA 0% ARTESANO») → código; None si no es de 0 a 100 %."""
+    if "artesano" in texto.lower():
+        return "artesano"
+    m = re.fullmatch(r"\s*(?:iva)?\s*(\d+(?:[.,]\d+)?)\s*%?\s*", texto, re.I)
+    if not m:
+        return None
+    valor = round(float(m.group(1).replace(",", ".")), 2)
+    return f"{valor:g}" if valor <= 100 else None
 
 CONDICIONES = ["INCLUYE ENTREGA EN PUNTO DE VENTA", "1 AÑO DE GARANTÍA POR DEFECTOS DE FABRICACIÓN"]
 
@@ -140,6 +166,7 @@ class Adicional:
     cantidad: float = 1
     costo: float = 0.0
     distribuir: bool = False
+    por: str = "uno"          # "modulos" o "m2": la cantidad sigue a los módulos; "uno": la cantidad es fija
 
 
 @dataclass
@@ -190,6 +217,16 @@ class Proforma:
     def m2_total(self) -> float:
         return sum(i.m2 * i.cantidad for i in self.items)
 
+    def cantidad_por(self, por: str) -> float:
+        """Cantidad de un adicional automático: número de módulos, m² de la exhibición o 1."""
+        cantidad = self.numero_modulos() if por == "modulos" else self.m2_total() if por == "m2" else 1
+        return redondear(cantidad or 1)
+
+    def actualizar_adicionales(self) -> None:
+        for a in self.adicionales:
+            if a.por != "uno":
+                a.cantidad = self.cantidad_por(a.por)
+
     def costo_items(self) -> float:
         return sum(i.costo_unitario(self.no_cobrar) * i.cantidad for i in self.items)
 
@@ -235,14 +272,14 @@ class Proforma:
 
     def subtotal(self) -> float:
         """Lo que paga el cliente antes de IVA (suma de las líneas ya redondeadas, como en la proforma)."""
-        return redondear(sum(self.precio_unitario(i) * i.cantidad for i in self.items) +
-                         sum(self.precio_adicional(a) * a.cantidad for a in self.adicionales_aparte()))
+        return redondear(sum(redondear(self.precio_unitario(i) * i.cantidad) for i in self.items) +
+                         sum(redondear(self.precio_adicional(a) * a.cantidad) for a in self.adicionales_aparte()))
 
     def tasa_iva(self) -> float:
-        return next((t for c, _n, t in IVA_OPCIONES if c == self.iva), 0.0)
+        return iva_tasa(self.iva)
 
     def texto_iva(self) -> str:
-        return next((n for c, n, _t in IVA_OPCIONES if c == self.iva), "IVA")
+        return iva_texto(self.iva)
 
     def iva_valor(self) -> float:
         return redondear(self.subtotal() * self.tasa_iva())
@@ -255,12 +292,13 @@ class Proforma:
 
     def materiales_consolidados(self) -> list[dict]:
         """Cuánto de cada material hace falta para toda la proforma (para comprar)."""
-        total: dict[str, dict] = {}
+        total: dict[tuple, dict] = {}
         for i in self.items:
             for r in i.receta:
                 if r.get("tipo") in self.no_cobrar:
                     continue
-                d = total.setdefault(r["material"], {**r, "cantidad": 0.0})
+                # un mismo material puede tener dos precios si cambió entre un módulo y otro: va en filas separadas
+                d = total.setdefault((r["material"], r["precio"]), {**r, "cantidad": 0.0})
                 d["cantidad"] += r["cantidad"] * i.cantidad
         filas = [d for d in total.values() if d["cantidad"]]
         for d in filas:
@@ -302,14 +340,21 @@ class Datos:
             self.empresas.append(Empresa(id=nuevo_id()))
         return next((e for e in self.empresas if e.id == self.empresa_activa), self.empresas[0])
 
+    def codigos_iva(self) -> list[str]:
+        """Los IVA de la lista: los de siempre y los ya usados (un IVA de feriado queda para elegirlo otra vez)."""
+        return list(dict.fromkeys([*IVAS, *(e.iva for e in self.empresas), *(p.iva for p in self.proformas)]))
+
     def empresa_de(self, proforma: Proforma) -> Empresa:
         return next((e for e in self.empresas if e.id == proforma.empresa_id), self.empresa)
 
     def cargar(self) -> None:
         try:
             d = json.loads(self.archivo.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return
+        except (OSError, ValueError) as e:      # abrir vacío haría que el próximo guardado borre los datos
+            raise ValueError(f"No se pudo leer {self.archivo} ({e}). No se cambió nada; en la carpeta «respaldos», "
+                             "junto a ese archivo, hay copias de días anteriores.") from e
         version = d.get("version", 1)
         campos = Empresa.__annotations__
         if "empresas" in d:
@@ -365,8 +410,13 @@ class Datos:
                  "gastos": [asdict(g) for g in self.gastos]}
         temporal = self.archivo.with_suffix(".tmp")
         temporal.write_text(json.dumps(datos, ensure_ascii=False, indent=1), encoding="utf-8")
-        if self.archivo.exists():
-            shutil.copy2(self.archivo, self.archivo.with_suffix(".json.respaldo"))
+        # se guarda en cada tecla: una copia por día, de los últimos 7, para que el respaldo sirva de algo
+        respaldo = self.carpeta / "respaldos" / f"datos-{dt.date.today().isoformat()}.json"
+        if self.archivo.exists() and not respaldo.exists():
+            respaldo.parent.mkdir(exist_ok=True)
+            shutil.copy2(self.archivo, respaldo)
+            for viejo in sorted(respaldo.parent.glob("datos-*.json"))[:-7]:
+                viejo.unlink()
         os.replace(temporal, self.archivo)
 
     # --- búsquedas ------------------------------------------------------------------------
@@ -422,14 +472,6 @@ class Datos:
         return {"material": m.id, "nombre": m.nombre, "unidad": m.unidad, "tipo": m.tipo,
                 "cantidad": cantidad, "precio": m.precio}
 
-    def agregar_material(self, item: Item, m: Material, cantidad: float = 1) -> int:
-        """Pone el material en la receta del ítem (si ya está, no lo repite) y devuelve su fila."""
-        for f, r in enumerate(item.receta):
-            if r["material"] == m.id:
-                return f
-        item.receta.append(self.linea_receta(m, cantidad))
-        return len(item.receta) - 1
-
     def guardar_como_modulo(self, item: Item, modulo_id: str = "") -> Modulo:
         """Guarda la receta de un ítem de la proforma en el catálogo de módulos (nuevo o reemplazando uno)."""
         receta: dict[str, float] = {}
@@ -457,12 +499,15 @@ class Datos:
                     r.update(nombre=m.nombre, unidad=m.unidad, tipo=m.tipo, precio=m.precio)
 
     def guardar_proforma(self, proforma: Proforma) -> None:
+        """Guarda una copia: lo que se siga editando en pantalla no cambia la proforma guardada."""
         for i, p in enumerate(self.proformas):
             if p.id == proforma.id:
-                self.proformas[i] = proforma
+                self.proformas[i] = copy.deepcopy(proforma)
                 break
         else:
-            self.proformas.append(proforma)
+            if any(p.numero == proforma.numero for p in self.proformas):     # p. ej., se importó un historial
+                proforma.numero = max(p.numero for p in self.proformas) + 1
+            self.proformas.append(copy.deepcopy(proforma))
         self.guardar()
 
 
@@ -470,16 +515,21 @@ class Datos:
 CAMPOS_DESCRIPCION = ("Tipo", "Materiales de fabricación", "Característica específica")
 
 
-def _sin_tildes(texto: str) -> str:
-    import unicodedata
-    return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn").lower()
+def sin_tildes(texto: str) -> str:
+    """Minúsculas y sin tildes, para buscar «diseno» y encontrar «DISEÑO»."""
+    return "".join(c for c in unicodedata.normalize("NFKD", (texto or "").lower()) if not unicodedata.combining(c))
+
+
+def clave_nombre(texto: str) -> str:
+    """Para saber si dos nombres son el mismo: sin tildes, mayúsculas ni espacios de más."""
+    return " ".join(sin_tildes(texto).split())
 
 
 def _campo_de_linea(linea: str) -> tuple[int, str] | None:
     """Si la línea empieza con «Tipo:», «Materiales de fabricación:»… devuelve (n.º de campo, resto)."""
-    plano = _sin_tildes(linea.strip())
+    plano = sin_tildes(linea.strip())
     for n, campo in enumerate(CAMPOS_DESCRIPCION):
-        if plano.startswith(_sin_tildes(campo) + ":"):
+        if plano.startswith(sin_tildes(campo) + ":"):
             return n, linea.strip()[len(campo) + 1:].strip()
     return None
 

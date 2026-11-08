@@ -8,14 +8,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from ..modelo import Adicional, redondear
-from .comun import Interruptor, centrado, dinero, item_texto, numero, tabla
-
-
-def _numero(texto: str, defecto: float) -> float:
-    try:
-        return float(texto.replace("$", "").replace(" ", "").replace(",", "."))
-    except ValueError:
-        return defecto
+from .comun import Interruptor, centrado, dinero, item_texto, leer_numero, numero, tabla
 
 
 class PestanaAdicionales(QWidget):
@@ -168,9 +161,10 @@ class PestanaAdicionales(QWidget):
         if it.column() == 0:
             a.descripcion = it.text()
         elif it.column() == 1:
-            a.cantidad = max(0.0, _numero(it.text(), a.cantidad))
+            a.cantidad = max(0.0, leer_numero(it.text(), a.cantidad))
+            a.por = "uno"                    # escrita a mano: ya no sigue a los módulos
         elif it.column() == 2:
-            a.costo = max(0.0, _numero(it.text(), a.costo))
+            a.costo = max(0.0, leer_numero(it.text(), a.costo))
         self._cambio()
 
     def _repartir(self, fila: int, si: bool) -> None:
@@ -191,8 +185,8 @@ class PestanaAdicionales(QWidget):
     def agregar(self, plantilla: dict) -> None:
         p = self.p
         por = plantilla.get("por", "uno")
-        cantidad = p.numero_modulos() if por == "modulos" else redondear(p.m2_total()) if por == "m2" else 1
-        p.adicionales.append(Adicional(plantilla["descripcion"], redondear(cantidad or 1), float(plantilla.get("costo", 0))))
+        p.adicionales.append(Adicional(plantilla["descripcion"], p.cantidad_por(por), float(plantilla.get("costo", 0)),
+                                       por=por))
         self._cambio()
 
     def quitar(self) -> None:
@@ -230,7 +224,7 @@ class PestanaAdicionales(QWidget):
         if it.column() == 0:
             pl["descripcion"] = it.text().strip()
         elif it.column() == 1:
-            pl["costo"] = max(0.0, _numero(it.text(), pl.get("costo", 0)))
+            pl["costo"] = max(0.0, leer_numero(it.text(), pl.get("costo", 0)))
         self.datos.guardar()
 
     def _agregar_plantilla(self) -> None:

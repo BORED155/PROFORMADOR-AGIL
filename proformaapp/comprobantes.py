@@ -79,6 +79,8 @@ def leer_xml(ruta: Path) -> dict:
             if t(imp, "codigo") == "2":            # 2 = IVA
                 iva += _num(t(imp, "valor"))
     total = _num(t(info, "importeTotal") or t(info, "valorModificacion")) or round(subtotal + iva, 2)
+    if info is not None and info.tag == "infoNotaCredito":      # devuelve dinero: resta de lo gastado
+        subtotal, iva, total = 0.0 - subtotal, 0.0 - iva, 0.0 - total
     detalles = [t(d, "descripcion") for d in raiz.iter("detalle") if t(d, "descripcion")]
     descripcion = "; ".join(detalles[:3]) + (f" (+{len(detalles) - 3} más)" if len(detalles) > 3 else "")
     return {"proveedor": t(info_t, "razonSocial") or t(info_t, "nombreComercial"), "ruc": t(info_t, "ruc"),

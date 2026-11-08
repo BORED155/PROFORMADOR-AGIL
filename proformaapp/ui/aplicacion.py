@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from PySide6.QtCore import QLibraryInfo, QLocale, QTimer, QTranslator
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -44,14 +43,17 @@ def ejecutar(argumentos: list[str]) -> int:
 
     from .ventana import VentanaPrincipal
 
-    v = VentanaPrincipal()
+    try:
+        v = VentanaPrincipal()
+    except Exception as e:  # noqa: BLE001 - nunca abrir sin los datos: el próximo guardado los borraría
+        QMessageBox.critical(None, NOMBRE_APP, f"No se pudo abrir el programa.\n\n{e}")
+        return 1
     v.show()
     if not v.datos.materiales:
         def primera_vez():
-            sugerido = sorted(Path.home().glob("Descargas/*roforma*.xlsx"))
             QMessageBox.information(v, "Bienvenido", "Para empezar, elija su Excel de proformas: de ahí se toman los "
                                                       "materiales con sus precios, los módulos con su receta, los "
                                                       "clientes y las fotos.")
-            v.importar_excel(None if not sugerido else None)
+            v.importar_excel()
         QTimer.singleShot(300, primera_vez)
     return app.exec()

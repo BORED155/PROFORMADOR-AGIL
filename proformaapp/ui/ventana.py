@@ -5,23 +5,20 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import shutil
-import subprocess
-import unicodedata
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QEvent, QModelIndex, QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter, QPixmap,
-                           QShortcut)
+from PySide6.QtCore import QDate, QEvent, QModelIndex, Qt, QTimer
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
-                               QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-                               QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QSlider,
+                               QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
+                               QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QSlider,
                                QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import informes
 from .. import paquete
 from ..importar import exportar_materiales, importar
-from ..modelo import (IVA_OPCIONES, OPCIONALES, TIPO_DISENO, TIPO_INVERSION, TIPO_MATERIAL, Adicional, Cliente, Datos, Empresa, Item, Material,
+from ..modelo import (OPCIONALES, Cliente, Datos, Empresa, Item, Material,
                       Modulo, Proforma, nuevo_id, redondear, separar_descripcion, unir_descripcion)
 
 ESTILO = """
@@ -56,8 +53,8 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 
 
 from .adicionales import PestanaAdicionales
-from .comun import (ItemOrdenable, numero, Interruptor, abrir_archivo, pdf_a_imagen, carpeta_proformas, centrado, dinero, item_texto, normalizar,
-                    spin, tabla)
+from .comun import (ComboIva, ItemOrdenable, numero, abrir_archivo, pdf_a_imagen, carpeta_proformas, dinero, item_texto, leer_numero,
+                    normalizar, spin, tabla)
 from .costos import PestanaCostos
 
 
@@ -168,9 +165,7 @@ class PestanaProforma(QWidget):
         # --- opciones ---
         self.margen = spin(0, 1000, 2, " %")
         self.margen.valueChanged.connect(self._cambio)
-        self.iva = QComboBox()
-        for codigo, texto, _t in IVA_OPCIONES:
-            self.iva.addItem(texto, codigo)
+        self.iva = ComboIva(self.datos.codigos_iva())
         self.iva.currentIndexChanged.connect(self._cambio)
         self.con_imagenes = QCheckBox("PDF con imágenes")
         self.con_imagenes.setToolTip("Desmarque para que el PDF salga sin las fotos de los módulos ni la imagen "
@@ -331,9 +326,10 @@ class PestanaProforma(QWidget):
         mod = self.datos.modulo(modulo_id)
         if mod is None:
             return
-        for n, i in enumerate(self.p.items):
-            if i.modulo_id == modulo_id:
-                self.p.items[n] = self.datos.item_de(mod, i.cantidad)
+        for i in self.p.items:
+            if i.modulo_id == modulo_id:              # el nombre y las medidas pueden ser propios de esta proforma
+                nuevo = self.datos.item_de(mod, i.cantidad)
+                i.receta, i.descripcion, i.foto = nuevo.receta, nuevo.descripcion, nuevo.foto
 
     def editar_en_modulos(self) -> None:
         item = self.item_actual()
@@ -356,22 +352,14 @@ class PestanaProforma(QWidget):
     def filtrar(self, *_a) -> None:
         """Deja visibles solo los que contienen todas las palabras escritas, y elige el primero."""
         palabras = normalizar(self.buscar.text()).split()
-        titulo_actual, visibles_en_seccion, primero = None, 0, None
+        primero = None
         for f in range(self.catalogo.rowCount()):
-            if self._dato_fila(f) is None:            # título de sección
-                if titulo_actual is not None:
-                    self.catalogo.setRowHidden(titulo_actual, visibles_en_seccion == 0)
-                titulo_actual, visibles_en_seccion = f, 0
-                continue
             ver = all(p in self.catalogo.item(f, 0).data(Qt.UserRole + 1) for p in palabras)
             self.catalogo.setRowHidden(f, not ver)
-            if ver:
-                visibles_en_seccion += 1
-                primero = f if primero is None else primero
-        if titulo_actual is not None:
-            self.catalogo.setRowHidden(titulo_actual, visibles_en_seccion == 0)
+            if ver and primero is None:
+                primero = f
         f = self.catalogo.currentRow()
-        if f < 0 or self.catalogo.isRowHidden(f) or self._dato_fila(f) is None:
+        if f < 0 or self.catalogo.isRowHidden(f):
             if primero is None:
                 self.catalogo.clearSelection()
                 self.catalogo.setCurrentCell(-1, -1)
@@ -388,13 +376,13 @@ class PestanaProforma(QWidget):
         f = self.catalogo.currentRow()
         while 0 <= f + paso < self.catalogo.rowCount():
             f += paso
-            if not self.catalogo.isRowHidden(f) and self._dato_fila(f) is not None:
+            if not self.catalogo.isRowHidden(f):
                 self.catalogo.setCurrentCell(f, 0)
                 return
 
     def agregar_elegido(self) -> None:
         f = self.catalogo.currentRow()
-        if f < 0 or self.catalogo.isRowHidden(f) or self._dato_fila(f) is None:
+        if f < 0 or self.catalogo.isRowHidden(f):
             return
         mod = self.datos.modulo(self._dato_fila(f))
         if mod:
@@ -512,7 +500,7 @@ class PestanaProforma(QWidget):
         self.titulo.setText(p.titulo)
         self.fecha.setDate(QDate.fromString(p.fecha, "yyyy-MM-dd"))
         self.margen.setValue(p.margen)
-        self.iva.setCurrentIndex(max(0, self.iva.findData(p.iva)))
+        self.iva.poner(p.iva)
         if self.notas.toPlainText() != p.notas:
             self.notas.setPlainText(p.notas)
         self.b_imagen.setText("Imagen del diseño final ✓" if p.imagen else "Imagen del diseño final…")
@@ -538,6 +526,7 @@ class PestanaProforma(QWidget):
 
     def recalcular(self, fila: int | None = None) -> None:
         p = self.p
+        p.actualizar_adicionales()
         fila = self.t_items.currentRow() if fila is None else fila
         self._cargando = True
         self.t_items.setRowCount(len(p.items))
@@ -576,13 +565,6 @@ class PestanaProforma(QWidget):
         self.lbl_detalle.setText(texto)
         self.lbl_detalle.setToolTip(texto)
 
-    @staticmethod
-    def _numero(texto: str, defecto: float) -> float:
-        try:
-            return float(texto.replace("$", "").replace(" ", "").replace(",", "."))
-        except ValueError:
-            return defecto
-
     def _item_editado(self, it: QTableWidgetItem) -> None:
         if self._cargando:
             return
@@ -591,7 +573,7 @@ class PestanaProforma(QWidget):
             i.nombre = it.text()
         campo = {1: "cantidad", 2: "ancho", 3: "alto", 4: "prof"}.get(it.column())
         if campo:
-            setattr(i, campo, max(0.0, self._numero(it.text(), getattr(i, campo))))
+            setattr(i, campo, max(0.0, leer_numero(it.text(), getattr(i, campo))))
         QTimer.singleShot(0, self.recalcular)
 
     # --- acciones ---------------------------------------------------------------------------
@@ -619,7 +601,20 @@ class PestanaProforma(QWidget):
         self.mostrar(self.p)
 
     def nueva(self) -> None:
-        self.mostrar(self.datos.nueva_proforma())
+        if self.puede_descartar():
+            self.mostrar(self.datos.nueva_proforma())
+
+    def puede_descartar(self) -> bool:
+        """Antes de dejar la proforma abierta: si tiene cambios sin guardar, pregunta qué hacer."""
+        guardada = self.datos.proforma(self.p.id)
+        if self.p == guardada or (guardada is None and not self.p.items and not self.p.adicionales):
+            return True
+        r = QMessageBox.question(self, "Cambios sin guardar",
+                                 f"La proforma N.º {self.p.numero:04d} tiene cambios sin guardar. ¿Guardarlos?",
+                                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        if r == QMessageBox.Save:
+            self.guardar(silencioso=True)
+        return r != QMessageBox.Cancel
 
     def _validar(self) -> bool:
         if not self.p.items and not self.p.adicionales:
@@ -633,6 +628,7 @@ class PestanaProforma(QWidget):
     def guardar(self, silencioso: bool = False) -> None:
         self._cambio()
         self.datos.guardar_proforma(self.p)
+        self.lbl_numero.setText(f"Proforma N.º {self.p.numero:04d}")     # pudo cambiar si el número ya estaba ocupado
         self.v.pest_historial.refrescar()
         if not silencioso:
             self.v.statusBar().showMessage(f"Proforma N.º {self.p.numero:04d} guardada.", 5000)
@@ -725,13 +721,13 @@ class PestanaHistorial(QWidget):
 
     def abrir(self) -> None:
         p = self._elegida()
-        if p:
+        if p and self.v.pest_proforma.puede_descartar():
             self.v.pest_proforma.mostrar(copy.deepcopy(p))
             self.v.pestanas.setCurrentWidget(self.v.pest_proforma)
 
     def duplicar(self) -> None:
         p = self._elegida()
-        if not p:
+        if not p or not self.v.pest_proforma.puede_descartar():
             return
         nueva = copy.deepcopy(p)
         base = self.datos.nueva_proforma()
@@ -960,10 +956,8 @@ class PestanaModulos(QWidget):
         m = self.actual()
         if self._cargando or m is None or it.column() != 1:
             return
-        try:
-            m.receta[it.data(Qt.UserRole)] = max(0.0, float(it.text().replace(",", ".")))
-        except ValueError:
-            pass
+        mid = it.data(Qt.UserRole)
+        m.receta[mid] = max(0.0, leer_numero(it.text(), m.receta[mid]))
         self.datos.guardar()
         QTimer.singleShot(0, self._tras_cantidad)
 
@@ -1224,10 +1218,14 @@ class PestanaTabla(QWidget):
             self.t.scrollToItem(self.t.item(f, 0))
             self.t.editItem(self.t.item(f, 0))
 
+    def aviso_eliminar(self, objs) -> str:
+        return ""
+
     def eliminar(self) -> None:
         objs = [o for o in (self.objeto(f) for f in sorted({i.row() for i in self.t.selectedIndexes()}))
                 if o is not None]
-        if not objs or QMessageBox.question(self, "Eliminar", f"¿Eliminar {len(objs)} fila(s)?") != QMessageBox.Yes:
+        if not objs or QMessageBox.question(self, "Eliminar", f"¿Eliminar {len(objs)} fila(s)?{self.aviso_eliminar(objs)}") \
+                != QMessageBox.Yes:
             return
         lista = self.lista()
         for o in objs:
@@ -1253,12 +1251,17 @@ class PestanaMateriales(PestanaTabla):
 
     def asignar(self, obj, atributo, it):
         if atributo == "precio":
-            try:
-                obj.precio = redondear(max(0.0, float(it.text().replace("$", "").replace(" ", "").replace(",", "."))))
-            except ValueError:
-                pass
+            obj.precio = redondear(max(0.0, leer_numero(it.text(), obj.precio)))
         else:
             super().asignar(obj, atributo, it)
+
+    def aviso_eliminar(self, objs) -> str:
+        ids = {o.id for o in objs}
+        usan = [m.nombre for m in self.datos.modulos if ids & m.receta.keys()]
+        if not usan:
+            return ""
+        return (f"\n\nATENCIÓN: {len(usan)} módulo(s) lo usan y costarán menos porque se quedarán sin ese material:\n"
+                + "\n".join(f"• {n}" for n in usan[:12]) + ("\n…" if len(usan) > 12 else ""))
 
     def agregar(self):
         m = Material(id=nuevo_id(), nombre="NUEVO MATERIAL", precio=0)
@@ -1415,9 +1418,7 @@ class PestanaEmpresa(QWidget):
         self.margen = spin(0, 1000, 2, " %")
         self.margen.valueChanged.connect(self.guardar)
         form.addRow("Ganancia por defecto:", self.margen)
-        self.iva = QComboBox()
-        for codigo, texto, _t in IVA_OPCIONES:
-            self.iva.addItem(texto, codigo)
+        self.iva = ComboIva(self.datos.codigos_iva())
         self.iva.currentIndexChanged.connect(self.guardar)
         form.addRow("IVA por defecto:", self.iva)
         self.validez = QSpinBox()
@@ -1503,7 +1504,7 @@ class PestanaEmpresa(QWidget):
         for atributo, w in self.campos.items():
             w.setText(getattr(e, atributo))
         self.margen.setValue(e.margen)
-        self.iva.setCurrentIndex(max(0, self.iva.findData(e.iva)))
+        self.iva.poner(e.iva)
         self.validez.setValue(e.validez_dias)
         self.memb_sup.setValue(e.membrete_sup)
         self.memb_inf.setValue(e.membrete_inf)
@@ -1669,6 +1670,9 @@ class VentanaPrincipal(QMainWindow):
         lay.setContentsMargins(12, 10, 12, 6)
         lay.addWidget(self.pestanas)
         self.setCentralWidget(central)
+
+    def closeEvent(self, ev) -> None:
+        ev.setAccepted(self.pest_proforma.puede_descartar())
 
     def _cambio_pestana(self, i: int) -> None:
         w = self.pestanas.widget(i)

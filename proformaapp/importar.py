@@ -15,12 +15,15 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.utils import column_index_from_string, get_column_letter
+from openpyxl.utils import column_index_from_string
 
-from .modelo import Cliente, Datos, Material, Modulo, nuevo_id, tipo_por_nombre
+from .comprobantes import _num
+from .modelo import Cliente, Datos, Material, Modulo, clave_nombre, nuevo_id, tipo_por_nombre
 
 
 def _numero(v) -> float:
+    if isinstance(v, str) and re.fullmatch(r"\s*\$?\s*-?[\d.,]+\s*", v):       # número escrito como texto: «12,50»
+        return _num(v)
     try:
         return float(v)
     except (TypeError, ValueError):
@@ -32,8 +35,8 @@ _ARITMETICA = re.compile(r"^=\+?[\d.,\s+\-*/()]+$")
 
 def _calcular(formula) -> float | None:
     """Resuelve fórmulas sencillas como «=0.6*2.44» o «=2.2+0.95» (cuando el Excel no guarda el resultado)."""
-    if not isinstance(formula, str) or not _ARITMETICA.match(formula.replace(" ", "")):
-        return None
+    if not isinstance(formula, str) or not _ARITMETICA.match(formula.replace(" ", "")) or "**" in formula:
+        return None                                # «**» podría colgar el programa con un número gigante
     try:
         return float(eval(formula.lstrip("=+").replace(",", "."), {"__builtins__": {}}, {}))  # noqa: S307
     except (ArithmeticError, SyntaxError, ValueError, TypeError):
@@ -129,15 +132,16 @@ def importar(archivo: Path, datos: Datos) -> dict[str, int]:
     # --- materiales (columna A, precio en B, desde la fila 3 hasta «TOTAL») ---
     materiales: list[Material] = []
     fila_material: dict[int, Material] = {}
+    exportado = _texto(rec.cell(2, 3).value).upper() == "UNIDAD"        # Excel hecho con «Exportar a Excel…»
     for f in range(3, rec.max_row + 1):
         nombre = _texto(rec.cell(f, 1).value)
-        if not nombre or nombre.upper().startswith("TOTAL"):
-            if nombre:
-                break
+        if not nombre:
             continue
+        if nombre.upper() == "TOTAL" if exportado else nombre.upper().startswith("TOTAL"):
+            break
         tipo = tipo_por_nombre(nombre)
-        m = Material(id=nuevo_id(), nombre=nombre, precio=_valor(rec, rec_f, f, 2), unidad=_unidad(nombre),
-                     tipo=tipo)
+        unidad = (_texto(rec.cell(f, 3).value) if exportado else "") or _unidad(nombre)
+        m = Material(id=nuevo_id(), nombre=nombre, precio=_valor(rec, rec_f, f, 2), unidad=unidad, tipo=tipo)
         materiales.append(m)
         fila_material[f] = m
 
@@ -195,9 +199,7 @@ def importar(archivo: Path, datos: Datos) -> dict[str, int]:
                                     contacto=campos.get("CONTACTO", ""), correo=campos.get("CORREO", "")))
 
     # --- unir con lo que ya existe: lo que ya está (mismo nombre) NO se modifica; solo se agrega lo nuevo ---
-    def clave(nombre: str) -> str:
-        return " ".join(nombre.lower().split())
-
+    clave = clave_nombre
     existentes = {clave(m.nombre): m for m in datos.materiales}
     nuevos_mat, equivalente = [], {}
     for m in materiales:
@@ -228,10 +230,6 @@ def importar(archivo: Path, datos: Datos) -> dict[str, int]:
                            (len(clientes) - len(nuevos_cli))}
 
 
-def letra(c: int) -> str:
-    return get_column_letter(c)
-
-
 def exportar_materiales(datos: Datos, archivo: Path) -> int:
     """Guarda los materiales (nombre y precio) en un Excel con hoja RECETA, listo para volver a importar
     en otra máquina (Materiales → Importar desde Excel…). Devuelve cuántos materiales se exportaron."""
@@ -246,7 +244,8 @@ def exportar_materiales(datos: Datos, archivo: Path) -> int:
     ws.merge_cells("A1:B1")
     ws["A2"] = "MATERIAL"
     ws["B2"] = "PRECIO"
-    for celda in ("A2", "B2"):
+    ws["C2"] = "UNIDAD"
+    for celda in ("A2", "B2", "C2"):
         ws[celda].font = Font(bold=True, color="FFFFFF")
         ws[celda].fill = PatternFill("solid", fgColor="1F4E79")
         ws[celda].alignment = Alignment(horizontal="center")
@@ -254,6 +253,7 @@ def exportar_materiales(datos: Datos, archivo: Path) -> int:
     for m in datos.materiales:
         ws.cell(fila, 1, m.nombre)
         ws.cell(fila, 2, round(float(m.precio), 2)).number_format = "#,##0.00"
+        ws.cell(fila, 3, m.unidad)
         fila += 1
     ws.cell(fila, 1, "TOTAL").font = Font(italic=True, color="808080")
     ws.column_dimensions["A"].width = 42

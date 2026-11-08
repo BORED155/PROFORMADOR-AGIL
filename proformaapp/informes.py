@@ -208,6 +208,8 @@ def pdf_cliente(proforma: Proforma, datos: Datos, destino: Path) -> Path:
     doc.setPageSize(QSizeF(contenido.width(), contenido.height()))
 
     p = QPainter(escritor)
+    if not p.isActive():                 # Qt no da error si no puede escribir (p. ej., el PDF está abierto en otro programa)
+        raise PermissionError(str(destino))
     for n in range(max(1, doc.pageCount())):
         if n:
             escritor.newPage()
@@ -279,7 +281,8 @@ def excel_costos(proforma: Proforma, datos: Datos, destino: Path) -> Path:
     for i in proforma.items:
         cu = i.costo_unitario(proforma.no_cobrar)
         pu = proforma.precio_unitario(i)
-        h.append([i.nombre, i.cantidad, cu, cu * i.cantidad, pu, pu * i.cantidad, pu * i.cantidad - cu * i.cantidad])
+        linea = redondear(pu * i.cantidad)
+        h.append([i.nombre, i.cantidad, cu, cu * i.cantidad, pu, linea, linea - cu * i.cantidad])
         f += 1
     for a in proforma.adicionales:
         if not a.cantidad or not a.costo:
@@ -289,8 +292,9 @@ def excel_costos(proforma: Proforma, datos: Datos, destino: Path) -> Path:
                       None, 0, -a.costo * a.cantidad])
         else:
             pu = proforma.precio_adicional(a)
-            h.append([a.descripcion, a.cantidad, a.costo, a.costo * a.cantidad, pu, pu * a.cantidad,
-                      (pu - a.costo) * a.cantidad])
+            linea = redondear(pu * a.cantidad)
+            h.append([a.descripcion, a.cantidad, a.costo, a.costo * a.cantidad, pu, linea,
+                      linea - a.costo * a.cantidad])
         f += 1
     ultima = f - 1
     h.append(["TOTAL", None, None, f"=SUM(D6:D{ultima})", None, f"=SUM(F6:F{ultima})", f"=SUM(G6:G{ultima})"])

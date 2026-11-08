@@ -16,19 +16,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDateEdit, QDialog,
 from .. import comprobantes
 from ..informes import fecha_corta
 from ..modelo import CATEGORIAS_GASTO, ESTADOS_GASTO, Gasto, nuevo_id, redondear
-from .comun import abrir_archivo, dinero, item_texto, numero, spin, tabla
+from .comun import abrir_archivo, dinero, item_texto, leer_numero, numero, spin, tabla
 
 COLUMNAS = [("Fecha", "fecha"), ("Proveedor", "proveedor"), ("RUC", "ruc"), ("Documento", "documento"),
             ("Descripción", "descripcion"), ("Categoría", "categoria"), ("Subtotal", "subtotal"), ("IVA", "iva"),
             ("Total", "total"), ("Estado", "estado"), ("Origen", "origen")]
 NUMEROS = {"subtotal", "iva", "total"}
-
-
-def _numero(texto: str, defecto: float) -> float:
-    try:
-        return round(float(texto.replace("$", "").replace(" ", "").replace(",", ".")), 2)
-    except ValueError:
-        return defecto
 
 
 class DialogoGasto(QDialog):
@@ -52,7 +45,8 @@ class DialogoGasto(QDialog):
         self.categoria.setEditable(True)
         self.categoria.addItems(CATEGORIAS_GASTO)
         self.categoria.setCurrentText(g.categoria)
-        self.subtotal, self.iva, self.total = spin(0, 1e8), spin(0, 1e8), spin(0, 1e8)
+        # negativos: las notas de crédito restan de lo gastado
+        self.subtotal, self.iva, self.total = spin(-1e8, 1e8), spin(-1e8, 1e8), spin(-1e8, 1e8)
         self.subtotal.setValue(g.subtotal)
         self.iva.setValue(g.iva)
         self.total.setValue(g.total)
@@ -304,7 +298,7 @@ class PestanaCostos(QWidget):
             return
         a = COLUMNAS[it.column()][1]
         if a in NUMEROS:
-            setattr(g, a, max(0.0, _numero(it.text(), getattr(g, a))))
+            setattr(g, a, round(leer_numero(it.text(), getattr(g, a)), 2))
             if a in ("subtotal", "iva"):
                 g.total = redondear(g.subtotal + g.iva)
         else:

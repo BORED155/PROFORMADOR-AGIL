@@ -4,24 +4,29 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import unicodedata
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDoubleSpinBox, QHBoxLayout, QHeaderView, QProxyStyle,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QHeaderView, QProxyStyle,
                                QStyle, QTableWidget, QTableWidgetItem, QWidget)
 
-from .. import informes
+from ..informes import dinero, numero  # noqa: F401 - las pestañas los toman de aquí
+from ..modelo import iva_texto, leer_iva
+from ..modelo import sin_tildes as normalizar  # noqa: F401
 
 
-def dinero(x: float) -> str:
-    return informes.dinero(x)
-
-
-def numero(x: float) -> str:
-    """Cantidades, medidas y porcentajes: siempre con 2 decimales (1,50)."""
-    return informes.numero(x)
+def leer_numero(texto: str, defecto: float) -> float:
+    """Lo escrito en una celda: «1,5», «1.5» o lo que la app muestra («$ 1.234,50»). Si no se entiende, `defecto`."""
+    t = texto.replace("$", "").replace(" ", "")
+    if "," in t and t.rfind(",") > t.rfind("."):
+        t = t.replace(".", "").replace(",", ".")
+    else:
+        t = t.replace(",", "")
+    try:
+        return float(t)
+    except ValueError:
+        return defecto
 
 
 class ItemOrdenable(QTableWidgetItem):
@@ -45,6 +50,32 @@ def spin(minimo=0.0, maximo=1e7, decimales=2, sufijo="") -> QDoubleSpinBox:
     s.setSuffix(sufijo)
     s.setMinimumWidth(90)
     return s
+
+
+class ComboIva(QComboBox):
+    """Elegir el IVA de la lista o escribir un porcentaje (13, 12,5). Lo que no sea de 0 a 100 % se descarta."""
+
+    def __init__(self, codigos: list[str]):
+        super().__init__()
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self.setCompleter(None)
+        self.setMinimumWidth(190)
+        self.setToolTip("Elija un IVA de la lista o escriba el porcentaje (por ejemplo 13 o 12,5) y presione Enter")
+        for codigo in codigos:
+            self.addItem(iva_texto(codigo), codigo)
+        self.lineEdit().editingFinished.connect(self._escrito)
+
+    def poner(self, codigo: str) -> None:
+        i = self.findData(codigo)
+        if i < 0:
+            self.addItem(iva_texto(codigo), codigo)
+            i = self.count() - 1
+        self.setCurrentIndex(i)
+        self.setEditText(self.itemText(i))
+
+    def _escrito(self) -> None:
+        self.poner(leer_iva(self.currentText()) or self.currentData())
 
 
 def item_texto(texto, editable=False, alinear_derecha=False) -> QTableWidgetItem:
@@ -153,12 +184,6 @@ def abrir_archivo(ruta: Path) -> None:
         subprocess.Popen(["gio", "open", str(ruta)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(ruta)))
-
-
-def normalizar(texto: str) -> str:
-    """Minúsculas y sin tildes, para buscar «diseno» y encontrar «DISEÑO»."""
-    t = unicodedata.normalize("NFKD", texto.lower())
-    return "".join(c for c in t if not unicodedata.combining(c))
 
 
 def carpeta_proformas() -> Path:

@@ -13,20 +13,16 @@ pide; si no, se deja como está.
 from __future__ import annotations
 
 import json
-import unicodedata
+import re
 import zipfile
 from dataclasses import asdict, fields
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from .modelo import Adicional, Cliente, Datos, Empresa, Gasto, Item, Material, Modulo, Proforma, nuevo_id
+from .modelo import clave_nombre as _clave
 
 FORMATO = "proformador-paquete"
 VERSION = 1
-
-
-def _clave(texto: str) -> str:
-    t = unicodedata.normalize("NFD", texto or "")
-    return " ".join("".join(c for c in t if unicodedata.category(c) != "Mn").lower().split())
 
 
 def _crear(cls, d: dict):
@@ -68,13 +64,13 @@ def _leer(archivo: Path, tipo: str) -> tuple[dict, zipfile.ZipFile]:
 
 def _extraer(z: zipfile.ZipFile, carpeta_zip: str, nombre: str, destino: Path) -> str:
     """Copia carpeta_zip/nombre a la carpeta destino (sin pisar un archivo distinto) y devuelve el nombre final."""
-    if not nombre:
+    nombre = re.split(r"[\\/:]", nombre or "")[-1]         # nunca rutas fuera de la carpeta (Linux ni Windows)
+    if nombre in ("", ".", ".."):
         return ""
     ruta = f"{carpeta_zip}/{nombre}"
     if ruta not in z.namelist():
         return nombre
     datos = z.read(ruta)
-    nombre = PurePosixPath(nombre).name                    # nunca rutas fuera de la carpeta
     final = destino / nombre
     if final.exists() and final.read_bytes() != datos:
         final = destino / f"{final.stem}-{nuevo_id()[:4]}{final.suffix}"

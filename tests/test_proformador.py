@@ -1,9 +1,12 @@
-import pytest
-from openpyxl import load_workbook
+import zipfile
 
-from proformaapp import informes
+import pytest
+from openpyxl import Workbook, load_workbook
+
+from proformaapp import comprobantes, informes, paquete
+from proformaapp import importar as importar_mod
 from proformaapp.importar import importar
-from proformaapp.modelo import Adicional, Datos
+from proformaapp.modelo import Adicional, Datos, Item, Material, Modulo, Proforma
 
 
 @pytest.fixture
@@ -630,3 +633,259 @@ def test_empresa_membrete_desde_pdf(datos, tmp_path):
     assert e.membrete == "" and pe.marca_agua.isEnabled() and pe.tamano.isEnabled()
     pe.tamano.setValue(45)
     assert pe.l_tamano.text() == "45 %" and type(datos)(datos.carpeta).empresa.marca_agua_tamano == 45
+
+
+# --- arreglos de la auditoría -------------------------------------------------------------------
+def _ventana(datos):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from proformaapp.ui.ventana import VentanaPrincipal
+    return VentanaPrincipal(datos)
+
+
+def _datos_con_modulo(tmp_path):
+    d = Datos(tmp_path / "d")
+    d.materiales += [Material("a", "MDF", 10.0), Material("b", "TORNILLO", 1.0)]
+    d.modulos.append(Modulo("m1", "Mod", ancho=1.0, alto=2.0, receta={"a": 2, "b": 3}))
+    d.guardar()
+    return d
+
+
+def test_archivo_danado_no_abre_ni_se_pisa(tmp_path):
+    d = Datos(tmp_path)
+    (tmp_path / "datos.json").write_text('{"version": 3, "materiales": [', encoding="utf-8")
+    with pytest.raises(ValueError, match="respaldos"):
+        Datos(tmp_path)
+    assert (tmp_path / "datos.json").read_text(encoding="utf-8").endswith("[")
+    assert d.materiales == []
+
+
+def test_un_respaldo_por_dia_y_solo_siete(tmp_path):
+    d = Datos(tmp_path)
+    d.guardar()
+    carpeta = tmp_path / "respaldos"
+    carpeta.mkdir()
+    for dia in range(1, 10):
+        (carpeta / f"datos-2020-01-0{dia}.json").write_text("viejo")
+    d.materiales.append(Material("a", "MDF", 1.0))
+    d.guardar()
+    hoy = sorted(carpeta.glob("datos-*.json"))[-1]
+    assert len(list(carpeta.glob("datos-*.json"))) == 7 and "MDF" not in hoy.read_text(encoding="utf-8")
+    d.guardar()                                         # otro guardado el mismo día no pisa la copia
+    assert "MDF" not in hoy.read_text(encoding="utf-8")
+
+
+def test_lo_no_guardado_no_llega_al_disco(tmp_path):
+    d = _datos_con_modulo(tmp_path)
+    p = d.nueva_proforma()
+    p.margen = 25.0
+    d.guardar_proforma(p)
+    p.margen = 40.0
+    d.guardar()
+    assert Datos(tmp_path / "d").proformas[0].margen == 25.0
+
+
+def test_preguntar_antes_de_perder_la_proforma(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    d = _datos_con_modulo(tmp_path)
+    w = _ventana(d)
+    pp = w.pest_proforma
+    preguntas = []
+    respuesta = QMessageBox.Cancel
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: preguntas.append(a[2]) or respuesta)
+    pp.nueva()                                          # vacía: no hay nada que perder
+    assert preguntas == []
+    pp.p.items.append(d.item_de(d.modulos[0]))
+    numero, p = pp.p.numero, pp.p
+    pp.nueva()
+    assert pp.p is p and len(preguntas) == 1            # Cancelar: sigue la misma
+    assert not w.close() and w.pest_proforma.p is p     # tampoco cierra
+    respuesta = QMessageBox.Save
+    pp.nueva()
+    assert d.proforma(p.id).numero == numero and pp.p is not p and len(preguntas) == 3
+    preguntas.clear()
+    assert w.close() and preguntas == []
+
+
+def test_editar_modulo_respeta_medidas_de_la_proforma(tmp_path):
+    d = _datos_con_modulo(tmp_path)
+    w = _ventana(d)
+    pp = w.pest_proforma
+    pp.p.items.append(d.item_de(d.modulos[0]))
+    pp.p.items[0].ancho, pp.p.items[0].nombre = 3.5, "Especial"
+    w.pest_modulos.lista.setCurrentRow(0)
+    w.pest_modulos.d_tipo.setText("Exhibidor")
+    assert (pp.p.items[0].ancho, pp.p.items[0].nombre) == (3.5, "Especial")
+    assert pp.p.items[0].descripcion == "Tipo: Exhibidor"
+    w.close()
+
+
+def test_avisa_al_borrar_material_en_uso(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    d = _datos_con_modulo(tmp_path)
+    w = _ventana(d)
+    t = w.pest_materiales.t
+    fila = next(f for f in range(t.rowCount()) if t.item(f, 0).text() == "MDF")
+    t.selectRow(fila)
+    textos = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: textos.append(a[2]) or QMessageBox.No)
+    w.pest_materiales.eliminar()
+    assert "1 módulo(s)" in textos[0] and "Mod" in textos[0] and len(d.materiales) == 2
+
+
+def test_pdf_que_no_se_puede_escribir_da_error(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    d = _datos_con_modulo(tmp_path)
+    with pytest.raises(PermissionError):
+        informes.pdf_cliente(d.nueva_proforma(), d, tmp_path / "no-existe" / "x.pdf")
+
+
+def test_nota_de_credito_resta(tmp_path):
+    xml = tmp_path / "nc.xml"
+    xml.write_text("<notaCredito><infoTributaria><ruc>1790000000001</ruc></infoTributaria><infoNotaCredito>"
+                   "<totalSinImpuestos>50.00</totalSinImpuestos><valorModificacion>50.00</valorModificacion>"
+                   "</infoNotaCredito></notaCredito>")
+    d = comprobantes.leer_xml(xml)
+    assert (d["subtotal"], d["total"]) == (-50.0, -50.0) and str(d["iva"]) == "0.0"
+
+
+def test_paquete_no_guarda_rutas_de_afuera(tmp_path):
+    z = tmp_path / "p.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("x", "y")
+    with zipfile.ZipFile(z) as f:
+        assert paquete._extraer(f, "fotos", "../../victima.txt", tmp_path) == "victima.txt"
+        assert paquete._extraer(f, "fotos", "..\\..\\victima.txt", tmp_path) == "victima.txt"
+        assert paquete._extraer(f, "fotos", "C:victima.txt", tmp_path) == "victima.txt"
+        assert paquete._extraer(f, "fotos", "../..", tmp_path) == ""
+
+
+def test_numero_ocupado_recibe_el_siguiente(tmp_path):
+    d = Datos(tmp_path)
+    abierta = d.nueva_proforma()                        # abierta en blanco antes de importar un historial
+    d.guardar_proforma(d.nueva_proforma())
+    d.guardar_proforma(abierta)
+    assert sorted(p.numero for p in d.proformas) == [1, 2] and abierta.numero == 2
+
+
+def test_subtotal_es_la_suma_de_las_lineas():
+    p = Proforma("x", 1, "2026-11-08", margen=0)
+    p.adicionales = [Adicional("A", 1.25, 10.10), Adicional("B", 1.25, 10.10)]
+    assert p.subtotal() == 25.26
+
+
+def test_adicional_automatico_sigue_a_los_modulos(tmp_path):
+    d = _datos_con_modulo(tmp_path)
+    w = _ventana(d)
+    pp, pa = w.pest_proforma, w.pest_adicionales
+    pp.p.items.append(d.item_de(d.modulos[0]))
+    pa.agregar({"descripcion": "LOGO", "costo": 75, "por": "modulos"})
+    pp.p.items.append(d.item_de(d.modulos[0]))
+    pp.recalcular()
+    assert pp.p.adicionales[0].cantidad == 2
+    pa.refrescar()
+    pa.t.item(0, 1).setText("9")                        # a mano: deja de seguir a los módulos
+    pp.p.items.append(d.item_de(d.modulos[0]))
+    pp.recalcular()
+    assert pp.p.adicionales[0].cantidad == 9
+    w.close()
+
+
+def test_leer_numero():
+    from proformaapp.ui.comun import leer_numero
+    for texto, valor in [("$ 1.234,50", 1234.5), ("1,5", 1.5), ("1.5", 1.5), ("1,234.56", 1234.56), ("1,125", 1.125),
+                         ("-50,00", -50.0), ("abc", 7.0)]:
+        assert leer_numero(texto, 7.0) == valor, texto
+
+
+def test_importar_numeros_nombres_y_formulas(tmp_path):
+    assert importar_mod._numero("12,50") == 12.5 and importar_mod._numero(0.125) == 0.125
+    assert importar_mod._numero("2x4") == 0.0
+    assert importar_mod._calcular("=9**9") is None and importar_mod._calcular("=2*3") == 6
+    d = Datos(tmp_path / "a")
+    d.materiales.append(Material("a", "DISEÑO 3D", 5.0))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RECETA"
+    ws["A3"], ws["B3"] = "DISENO 3D", 9
+    x = tmp_path / "x.xlsx"
+    wb.save(x)
+    assert importar_mod.importar(x, d)["materiales"] == 0 and len(d.materiales) == 1
+
+
+def test_exportar_materiales_conserva_unidad_y_nombres_con_total(tmp_path):
+    d = Datos(tmp_path / "a")
+    d.materiales += [Material("a", "AAA", 1.0), Material("b", "TOTAL BOND", 2.0), Material("c", "ZZZ", 3.0, unidad="kg")]
+    x = tmp_path / "m.xlsx"
+    importar_mod.exportar_materiales(d, x)
+    e = Datos(tmp_path / "b")
+    importar_mod.importar(x, e)
+    assert [(m.nombre, m.unidad) for m in e.materiales] == [("AAA", "u"), ("TOTAL BOND", "u"), ("ZZZ", "kg")]
+
+
+def test_leer_iva():
+    from proformaapp.modelo import iva_tasa, iva_texto, leer_iva
+    for texto, codigo in [("13", "13"), ("12,5 %", "12.5"), ("IVA 15%", "15"), ("IVA 0% ARTESANO", "artesano"),
+                          ("0", "0"), ("100", "100"), ("101", None), ("abc", None), ("-5", None), ("", None)]:
+        assert leer_iva(texto) == codigo, texto
+    assert iva_tasa("12.5") == 0.125 and iva_tasa("artesano") == 0.0 and iva_tasa("raro") == 0.0
+    assert iva_texto("12.5") == "IVA 12,5%" and iva_texto("15") == "IVA 15%"
+
+
+def test_iva_escrito_en_empresa_y_en_proforma(tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    d = _datos_con_modulo(tmp_path)
+    vieja = d.nueva_proforma()
+    vieja.iva = "15"
+    d.guardar_proforma(vieja)
+    w = _ventana(d)
+
+    def escribir(combo, texto):
+        combo.lineEdit().clear()
+        QTest.keyClicks(combo.lineEdit(), texto)
+        QTest.keyClick(combo.lineEdit(), Qt.Key_Return)
+
+    escribir(w.pest_empresa.iva, "13")
+    assert d.empresa.iva == "13" and Datos(tmp_path / "d").empresa.iva == "13"
+    escribir(w.pest_empresa.iva, "abc")                 # lo que no es un porcentaje se descarta
+    assert d.empresa.iva == "13" and w.pest_empresa.iva.currentText() == "IVA 13%"
+
+    pp = w.pest_proforma
+    pp.nueva()
+    assert pp.p.iva == "13" and pp.iva.currentText() == "IVA 13%"   # la proforma nueva toma el de la empresa
+    pp.p.items.append(d.item_de(d.modulos[0]))                      # 23 de costo + 25 % = 28,75
+    escribir(pp.iva, "12,5")
+    assert pp.p.iva == "12.5" and pp.p.iva_valor() == 3.59 and pp.p.total() == 32.34
+    assert "IVA 12,5%" in informes.html_cliente(pp.p, d)
+    pp.guardar(silencioso=True)
+
+    w.pest_historial.t.setCurrentCell(1, 0)
+    pp.mostrar(d.proformas[0])
+    assert pp.iva.currentText() == "IVA 15%"                        # la vieja conserva el suyo
+    assert w.pest_empresa.iva.findData("13") >= 0
+    assert set(Datos(tmp_path / "d").codigos_iva()) == {"artesano", "15", "13", "12.5"}   # queda para elegirlo otra vez
+    w.close()
+
+
+def test_iva_elegido_de_la_lista(tmp_path):
+    d = _datos_con_modulo(tmp_path)
+    w = _ventana(d)
+    w.pest_proforma.iva.setCurrentIndex(w.pest_proforma.iva.findData("15"))
+    assert w.pest_proforma.p.iva == "15" and w.pest_proforma.iva.currentText() == "IVA 15%"
+    w.close()
+
+
+def test_materiales_a_comprar_con_dos_precios(tmp_path):
+    def receta(precio, cantidad):
+        return [{"material": "a", "nombre": "MDF", "tipo": "material", "cantidad": cantidad, "precio": precio}]
+    p = Proforma("i", 1, "2026-11-08", items=[Item("x", "A", receta=receta(10, 1)), Item("y", "B", receta=receta(12, 1)),
+                                              Item("z", "C", cantidad=2, receta=receta(10, 3))])
+    filas = p.materiales_consolidados()
+    assert [(f["cantidad"], f["precio"], f["total"]) for f in filas] == [(7.0, 10, 70.0), (1.0, 12, 12.0)]
+    assert sum(f["total"] for f in filas) == p.costo_total() == 82.0
+    d = Datos(tmp_path / "d")
+    x = informes.excel_costos(p, d, tmp_path / "c.xlsx")
+    hoja = load_workbook(x)["Materiales a comprar"]
+    assert [hoja.cell(f, 5).value for f in (4, 5)] == [70.0, 12.0] and hoja.cell(6, 1).value == "TOTAL MATERIALES Y SERVICIOS"
