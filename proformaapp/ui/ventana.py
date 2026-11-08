@@ -56,7 +56,7 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 
 
 from .adicionales import PestanaAdicionales
-from .comun import (ItemOrdenable, numero, Interruptor, abrir_archivo, carpeta_proformas, centrado, dinero, item_texto, normalizar,
+from .comun import (ItemOrdenable, numero, Interruptor, abrir_archivo, pdf_a_imagen, carpeta_proformas, centrado, dinero, item_texto, normalizar,
                     spin, tabla)
 from .costos import PestanaCostos
 
@@ -1344,6 +1344,61 @@ class PestanaEmpresa(QWidget):
         fl.addWidget(b_logo)
         fl.addStretch(1)
         form.addRow("Logo:", fl)
+
+        # hoja membretada (fondo de cada página del PDF)
+        self.membrete = QLabel()
+        self.membrete.setFixedSize(85, 120)                 # proporción A4
+        self.membrete.setAlignment(Qt.AlignCenter)
+        self.membrete.setStyleSheet("border: 1px dashed #b0bec5; border-radius: 6px; background: white; "
+                                    "color: #90a4ae; font-size: 10px")
+        b_memb = QPushButton("Elegir hoja membretada…")
+        b_memb.setToolTip("Imagen (PNG/JPG) o PDF de su hoja membretada, tamaño A4. Va de fondo en cada página.")
+        b_memb.clicked.connect(self.elegir_membrete)
+        self.b_memb_q = QPushButton("Quitar")
+        self.b_memb_q.clicked.connect(self.quitar_membrete)
+        self.memb_sup, self.memb_inf = spin(5, 150, 0, " mm"), spin(5, 150, 0, " mm")
+        self.memb_sup.setToolTip("Espacio libre arriba para no escribir sobre el encabezado del membrete")
+        self.memb_inf.setToolTip("Espacio libre abajo para no escribir sobre el pie del membrete")
+        for w in (self.memb_sup, self.memb_inf):
+            w.valueChanged.connect(self.guardar)
+        cm = QVBoxLayout()
+        fbm = QHBoxLayout()
+        fbm.addWidget(b_memb)
+        fbm.addWidget(self.b_memb_q)
+        fbm.addStretch(1)
+        cm.addLayout(fbm)
+        fes = QHBoxLayout()
+        fes.addWidget(QLabel("Espacio arriba:"))
+        fes.addWidget(self.memb_sup)
+        fes.addWidget(QLabel("abajo:"))
+        fes.addWidget(self.memb_inf)
+        fes.addStretch(1)
+        cm.addLayout(fes)
+        am = QLabel("Si tiene hoja membretada, el PDF se imprime sobre ella (sin repetir logo ni datos de la "
+                    "empresa). Ajuste los espacios para no tapar el encabezado y el pie.")
+        am.setWordWrap(True)
+        am.setStyleSheet("color: #546e7a; font-size: 11px")
+        cm.addWidget(am)
+        fm = QHBoxLayout()
+        fm.addWidget(self.membrete, 0, Qt.AlignTop)
+        fm.addLayout(cm, 1)
+
+        # marca de agua con el logo (cuando no hay membrete)
+        self.marca_agua = QCheckBox("Poner el logo de fondo como marca de agua")
+        self.marca_agua.toggled.connect(self.guardar)
+        self.intensidad = spin(1, 60, 0, " %")
+        self.intensidad.setToolTip("Qué tan visible queda el logo de fondo (8 % es suave)")
+        self.intensidad.valueChanged.connect(self.guardar)
+        b_ejemplo = QPushButton("Ver ejemplo en PDF")
+        b_ejemplo.setObjectName("azul")
+        b_ejemplo.setToolTip("Arma un PDF de prueba con esta empresa para ver cómo queda")
+        b_ejemplo.clicked.connect(self.ver_ejemplo)
+        fma = QHBoxLayout()
+        fma.addWidget(self.marca_agua)
+        fma.addWidget(QLabel("Intensidad:"))
+        fma.addWidget(self.intensidad)
+        fma.addStretch(1)
+        fma.addWidget(b_ejemplo)
         self.margen = spin(0, 1000, 2, " %")
         self.margen.valueChanged.connect(self.guardar)
         form.addRow("Ganancia por defecto:", self.margen)
@@ -1358,6 +1413,8 @@ class PestanaEmpresa(QWidget):
         self.validez.setSpecialValueText("no mostrar")
         self.validez.valueChanged.connect(self.guardar)
         form.addRow("Validez de la proforma:", self.validez)
+        form.addRow("Hoja membretada:", fm)
+        form.addRow("Marca de agua:", fma)
         nota = QLabel("Las condiciones del servicio se eligen en cada proforma; los adicionales rápidos están en la "
                       "pestaña «Adicionales».")
         nota.setWordWrap(True)
@@ -1425,8 +1482,69 @@ class PestanaEmpresa(QWidget):
         self.margen.setValue(e.margen)
         self.iva.setCurrentIndex(max(0, self.iva.findData(e.iva)))
         self.validez.setValue(e.validez_dias)
+        self.memb_sup.setValue(e.membrete_sup)
+        self.memb_inf.setValue(e.membrete_inf)
+        self.marca_agua.setChecked(e.marca_agua)
+        self.intensidad.setValue(e.marca_agua_intensidad)
         self._cargando = False
         self._mostrar_logo()
+        self._mostrar_membrete()
+
+    def _mostrar_membrete(self) -> None:
+        ruta = self.datos.ruta_foto(self.datos.empresa.membrete)
+        self.membrete.setPixmap(QPixmap(str(ruta)).scaled(83, 118, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                                if ruta else QPixmap())
+        self.membrete.setText("" if ruta else "Sin\nmembrete")
+        self.b_memb_q.setEnabled(bool(ruta))
+        for w in (self.memb_sup, self.memb_inf):
+            w.setEnabled(bool(ruta))
+        self.marca_agua.setEnabled(not ruta)
+        self.intensidad.setEnabled(not ruta)
+        self.marca_agua.setToolTip("Con hoja membretada no se usa la marca de agua" if ruta else
+                                   "El logo sale tenue en el centro de cada página del PDF")
+
+    def elegir_membrete(self) -> None:
+        ruta, _ = QFileDialog.getOpenFileName(self, "Hoja membretada", str(Path.home()),
+                                              "Imagen o PDF (*.png *.jpg *.jpeg *.pdf)")
+        if not ruta:
+            return
+        destino = self.datos.fotos / f"membrete-{nuevo_id()[:4]}.png"
+        if ruta.lower().endswith(".pdf"):
+            if not pdf_a_imagen(Path(ruta), destino):
+                QMessageBox.warning(self, "Hoja membretada", "No se pudo leer ese PDF. Pruebe con una imagen "
+                                                             "(PNG o JPG) de la hoja.")
+                return
+        else:
+            destino = destino.with_suffix(Path(ruta).suffix.lower())
+            shutil.copy2(ruta, destino)
+        self.datos.empresa.membrete = destino.name
+        self.datos.guardar()
+        self._mostrar_membrete()
+        self.v.statusBar().showMessage("Hoja membretada guardada. Use «Ver ejemplo en PDF» para ajustar los "
+                                       "espacios.", 8000)
+
+    def quitar_membrete(self) -> None:
+        self.datos.empresa.membrete = ""
+        self.datos.guardar()
+        self._mostrar_membrete()
+
+    def ver_ejemplo(self) -> Path | None:
+        """PDF de prueba con esta empresa: la proforma abierta si tiene módulos, si no una con el primer módulo."""
+        import tempfile
+        actual = self.v.pest_proforma.p
+        p = copy.deepcopy(actual) if actual.items else self.datos.nueva_proforma()
+        p.empresa_id = self.datos.empresa.id
+        if not p.items and self.datos.modulos:
+            p.items.append(self.datos.item_de(self.datos.modulos[0]))
+            p.titulo = p.titulo or "EJEMPLO"
+        destino = Path(tempfile.gettempdir()) / f"Ejemplo proforma - {nuevo_id()[:4]}.pdf"
+        try:
+            informes.pdf_cliente(p, self.datos, destino)
+        except Exception as e:  # noqa: BLE001 - se informa al usuario
+            QMessageBox.warning(self, "No se pudo armar el ejemplo", str(e))
+            return None
+        abrir_archivo(destino)
+        return destino
 
     def _mostrar_logo(self):
         ruta = self.datos.ruta_foto(self.datos.empresa.logo)
@@ -1479,6 +1597,8 @@ class PestanaEmpresa(QWidget):
         e.margen = self.margen.value()
         e.iva = self.iva.currentData()
         e.validez_dias = self.validez.value()
+        e.membrete_sup, e.membrete_inf = self.memb_sup.value(), self.memb_inf.value()
+        e.marca_agua, e.marca_agua_intensidad = self.marca_agua.isChecked(), self.intensidad.value()
         self.datos.guardar()
         it = self.lista.currentItem()
         if it is not None:

@@ -101,6 +101,11 @@ class Empresa:
     margen: float = 25.0
     iva: str = "artesano"
     validez_dias: int = 15
+    membrete: str = ""                # imagen de la hoja membretada (página A4 completa), en la carpeta de fotos
+    membrete_sup: float = 40.0        # mm libres arriba y abajo para no tapar el encabezado/pie del membrete
+    membrete_inf: float = 25.0
+    marca_agua: bool = False          # sin membrete: el logo va de fondo, tenue, en cada página
+    marca_agua_intensidad: float = 8.0   # % de opacidad
 
 
 @dataclass

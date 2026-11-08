@@ -545,3 +545,76 @@ def test_condiciones_editables_y_casillas_visibles(datos):
         pintar_casilla(p, QRectF(0, 0, 20, 20), marcada)
         p.end()
         assert img.pixelColor(5, 14).name() == color
+
+
+def _pixel_pdf(pdf, x, y):
+    """Color del punto (x, y) en fracciones de la página 1 del PDF."""
+    from PySide6.QtCore import QSize
+    from PySide6.QtPdf import QPdfDocument
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    doc = QPdfDocument()
+    doc.load(str(pdf))
+    img = doc.render(0, QSize(420, 594))
+    from PySide6.QtGui import QColor, QImage, QPainter
+    hoja = QImage(img.size(), QImage.Format_RGB32)              # papel blanco debajo
+    hoja.fill(QColor("white"))
+    pin = QPainter(hoja)
+    pin.drawImage(0, 0, img)
+    pin.end()
+    return hoja.pixelColor(int(x * 419), int(y * 593))
+
+
+def test_pdf_hoja_membretada_y_marca_de_agua(datos, tmp_path):
+    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    p = datos.nueva_proforma()
+    p.items.append(datos.item_de(datos.modulos[0]))
+    e = datos.empresa
+    # logo rojo como marca de agua: el centro de la hoja queda rosado tenue; sin marca, blanco
+    logo = QImage(200, 100, QImage.Format_RGB32)
+    logo.fill(QColor("#ff0000"))
+    logo.save(str(datos.fotos / "logo.png"))
+    e.logo = "logo.png"
+    sin = informes.pdf_cliente(p, datos, tmp_path / "sin.pdf")
+    assert _pixel_pdf(sin, 0.5, 0.75).name() == "#ffffff"
+    e.marca_agua, e.marca_agua_intensidad = True, 20
+    con = informes.pdf_cliente(p, datos, tmp_path / "marca.pdf")
+    c = _pixel_pdf(con, 0.5, 0.5)
+    assert c.red() > 240 and 180 < c.green() < 230               # rojo al 20 %: rosado
+    # hoja membretada azul: cubre toda la hoja (esquinas incluidas) y reemplaza la marca de agua
+    hoja = QImage(210, 297, QImage.Format_RGB32)
+    hoja.fill(QColor("#0000ff"))
+    hoja.save(str(datos.fotos / "membrete.png"))
+    e.membrete = "membrete.png"
+    m = informes.pdf_cliente(p, datos, tmp_path / "membrete.pdf")
+    for x, y in ((0.01, 0.01), (0.99, 0.99), (0.5, 0.97)):
+        c = _pixel_pdf(m, x, y)
+        assert c.blue() > 240 and c.red() < 15 and c.green() < 15
+    assert "logo.png" not in informes.html_cliente(p, datos)      # el membrete ya trae el logo
+
+
+def test_empresa_membrete_desde_pdf(datos, tmp_path):
+    from PySide6.QtGui import QColor, QPageSize, QPainter, QPdfWriter
+    from PySide6.QtWidgets import QApplication, QFileDialog
+    QApplication.instance() or QApplication([])
+    from proformaapp.ui import ventana as v
+    origen = tmp_path / "membrete.pdf"
+    w = QPdfWriter(str(origen))
+    w.setPageSize(QPageSize(QPageSize.A4))
+    pin = QPainter(w)
+    pin.fillRect(0, 0, 200, 200, QColor("#00aa00"))
+    pin.end()
+    ventana = v.VentanaPrincipal(datos)
+    pe = ventana.pest_empresa
+    import unittest.mock as um
+    with um.patch.object(QFileDialog, "getOpenFileName", return_value=(str(origen), "")):
+        pe.elegir_membrete()
+    e = datos.empresa
+    assert e.membrete.endswith(".png") and datos.ruta_foto(e.membrete)
+    assert not pe.marca_agua.isEnabled() and pe.memb_sup.isEnabled()
+    pe.memb_sup.setValue(55)
+    assert type(datos)(datos.carpeta).empresa.membrete_sup == 55
+    pe.quitar_membrete()
+    assert e.membrete == "" and pe.marca_agua.isEnabled()

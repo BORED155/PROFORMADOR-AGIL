@@ -68,12 +68,16 @@ def html_cliente(proforma: Proforma, datos: Datos) -> str:
     esc = html.escape
     logo = datos.ruta_foto(e.logo)
     cab_empresa = ""
+    if datos.ruta_foto(e.membrete):
+        logo = None                    # la hoja membretada ya trae logo y datos de la empresa
     if logo:
         cab_empresa += f'<img src="{logo.as_uri()}" height="140"><br>'
     if e.nombre:
         cab_empresa += f'<span style="font-size:15pt; font-weight:bold; color:#0d47a1">{esc(e.nombre)}</span><br>'
     detalles = [x for x in (f"RUC: {e.ruc}" if e.ruc else "", e.direccion, e.telefono, e.correo) if x]
     cab_empresa += "<br>".join(esc(x) for x in detalles)
+    if datos.ruta_foto(e.membrete):
+        cab_empresa = ""
 
     cliente_html = ""
     if c:
@@ -160,23 +164,72 @@ def html_cliente(proforma: Proforma, datos: Datos) -> str:
 </body></html>"""
 
 
+MM_A4 = (210.0, 297.0)
+MARGEN_MM = 14.0
+
+
 def pdf_cliente(proforma: Proforma, datos: Datos, destino: Path) -> Path:
-    from PySide6.QtCore import QMarginsF, QSizeF
-    from PySide6.QtGui import QPageLayout, QPageSize, QPdfWriter, QTextDocument
+    """PDF A4. Fondo de cada página: la hoja membretada de la empresa (estirada a toda la hoja) o, si no tiene y
+    lo pidió, su logo como marca de agua tenue en el centro."""
+    from PySide6.QtCore import QMarginsF, QRectF, QSizeF
+    from PySide6.QtGui import QImage, QPageLayout, QPageSize, QPainter, QPdfWriter, QTextDocument
 
     destino = Path(destino)
+    e = datos.empresa_de(proforma)
+    dpi = 150
     escritor = QPdfWriter(str(destino))
     escritor.setPageSize(QPageSize(QPageSize.A4))
-    escritor.setPageMargins(QMarginsF(14, 14, 14, 14), QPageLayout.Millimeter)
-    escritor.setResolution(150)
+    escritor.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Millimeter)
+    escritor.setResolution(dpi)
     escritor.setTitle(f"Proforma {proforma.numero:04d}")
-    escritor.setCreator(datos.empresa_de(proforma).nombre or "Proformador")
+    escritor.setCreator(e.nombre or "Proformador")
+
+    def px(mm: float) -> float:
+        return mm / 25.4 * dpi
+
+    pagina = QRectF(0, 0, px(MM_A4[0]), px(MM_A4[1]))
+    membrete = datos.ruta_foto(e.membrete)
+    fondo, opacidad = None, 1.0
+    arriba = abajo = MARGEN_MM
+    if membrete:
+        fondo = QImage(str(membrete))
+        arriba, abajo = max(5.0, e.membrete_sup), max(5.0, e.membrete_inf)
+    elif e.marca_agua and datos.ruta_foto(e.logo):
+        fondo, opacidad = QImage(str(datos.ruta_foto(e.logo))), max(1.0, min(100.0, e.marca_agua_intensidad)) / 100
+    if fondo is not None and fondo.isNull():
+        fondo = None
+
+    contenido = QRectF(px(MARGEN_MM), px(arriba), pagina.width() - 2 * px(MARGEN_MM),
+                       pagina.height() - px(arriba) - px(abajo))
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     doc.setHtml(html_cliente(proforma, datos))
-    disposicion = escritor.pageLayout().paintRectPixels(escritor.resolution())
-    doc.setPageSize(QSizeF(disposicion.width(), disposicion.height()))
-    doc.print_(escritor)
+    doc.setPageSize(QSizeF(contenido.width(), contenido.height()))
+
+    p = QPainter(escritor)
+    for n in range(max(1, doc.pageCount())):
+        if n:
+            escritor.newPage()
+        if fondo is not None:
+            p.save()
+            p.setOpacity(opacidad)
+            if membrete:
+                destino_fondo = pagina                           # la hoja membretada ocupa toda la página
+            else:                                                # el logo: centrado, 70 % del ancho
+                w = pagina.width() * 0.7
+                h = w * fondo.height() / fondo.width()
+                if h > pagina.height() * 0.6:
+                    h = pagina.height() * 0.6
+                    w = h * fondo.width() / fondo.height()
+                destino_fondo = QRectF(0, 0, w, h)
+                destino_fondo.moveCenter(pagina.center())
+            p.drawImage(destino_fondo, fondo)
+            p.restore()
+        p.save()
+        p.translate(contenido.left(), contenido.top() - n * contenido.height())
+        doc.drawContents(p, QRectF(0, n * contenido.height(), contenido.width(), contenido.height()))
+        p.restore()
+    p.end()
     return destino
 
 

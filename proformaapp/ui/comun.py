@@ -166,3 +166,28 @@ def carpeta_proformas() -> Path:
         if (Path.home() / n).is_dir():
             return Path.home() / n / "Proformas"
     return Path.home() / "Proformas"
+
+
+def pdf_a_imagen(pdf: Path, destino: Path, dpi: int = 150) -> bool:
+    """Primera página de un PDF → imagen PNG (para usar una hoja membretada en PDF)."""
+    from PySide6.QtCore import QCoreApplication, QSize
+    from PySide6.QtPdf import QPdfDocument
+    doc = QPdfDocument()
+    doc.load(str(pdf))
+    for _ in range(50):                            # en Windows la carga puede tardar un instante
+        if doc.status() in (QPdfDocument.Status.Ready, QPdfDocument.Status.Error) and doc.pageCount():
+            break
+        QCoreApplication.processEvents()
+    if doc.pageCount() < 1:
+        return False
+    tam = doc.pagePointSize(0)
+    img = doc.render(0, QSize(round(tam.width() / 72 * dpi), round(tam.height() / 72 * dpi)))
+    if img.isNull():
+        return False
+    from PySide6.QtGui import QColor, QImage, QPainter
+    fondo = QImage(img.size(), QImage.Format_RGB32)       # fondo blanco (el PDF puede venir transparente)
+    fondo.fill(QColor("white"))
+    p = QPainter(fondo)
+    p.drawImage(0, 0, img)
+    p.end()
+    return fondo.save(str(destino))

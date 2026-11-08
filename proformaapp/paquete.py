@@ -153,7 +153,7 @@ def exportar_historial(datos: Datos, archivo: Path) -> int:
     ids_pro = {p.id for p in datos.proformas}
     empresas = [e for e in datos.empresas if e.id in ids_emp]
     gastos = [g for g in datos.gastos if g.proforma_id in ids_pro]
-    adjuntos = [(datos.fotos / e.logo, f"fotos/{e.logo}") for e in empresas if e.logo]
+    adjuntos = [(datos.fotos / x, f"fotos/{x}") for e in empresas for x in (e.logo, e.membrete) if x]
     for p in datos.proformas:
         if p.imagen:
             adjuntos.append((datos.fotos / p.imagen, f"fotos/{p.imagen}"))
@@ -210,6 +210,7 @@ def importar_historial(datos: Datos, archivo: Path, reemplazar: bool = False) ->
                 x = _crear(Empresa, ed)
                 x.id = x.id or nuevo_id()
                 x.logo = _extraer(z, "fotos", x.logo, datos.fotos)
+                x.membrete = _extraer(z, "fotos", x.membrete, datos.fotos)
                 datos.empresas.append(x)
                 r["empresas"] += 1
             emp[ed["id"]] = x.id
