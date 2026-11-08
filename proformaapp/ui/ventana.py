@@ -14,7 +14,7 @@ from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QIcon, QKeyS
                            QShortcut)
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-                               QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
+                               QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QSlider,
                                QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
@@ -1394,12 +1394,24 @@ class PestanaEmpresa(QWidget):
         b_ejemplo.setObjectName("azul")
         b_ejemplo.setToolTip("Arma un PDF de prueba con esta empresa para ver cómo queda")
         b_ejemplo.clicked.connect(self.ver_ejemplo)
-        fma = QHBoxLayout()
-        fma.addWidget(self.marca_agua)
-        fma.addWidget(QLabel("Intensidad del fondo:"))
-        fma.addWidget(self.intensidad)
-        fma.addStretch(1)
-        fma.addWidget(b_ejemplo)
+        fint = QHBoxLayout()
+        fint.addWidget(self.intensidad)
+        fint.addStretch(1)
+        # tamaño del logo de fondo: deslizador + número
+        self.tamano = QSlider(Qt.Horizontal)
+        self.tamano.setRange(10, 100)
+        self.tamano.setMinimumWidth(260)
+        self.tamano.setToolTip("Qué tan grande sale el logo de fondo (porcentaje del ancho de la hoja)")
+        self.tamano.valueChanged.connect(self._tamano_movido)
+        self.l_tamano = QLabel()
+        self.l_tamano.setMinimumWidth(48)
+        ftam = QHBoxLayout()
+        ftam.addWidget(QLabel("Pequeño"))
+        ftam.addWidget(self.tamano, 1)
+        ftam.addWidget(QLabel("Grande"))
+        ftam.addWidget(self.l_tamano)
+        ftam.addSpacing(12)
+        ftam.addWidget(b_ejemplo)
         self.margen = spin(0, 1000, 2, " %")
         self.margen.valueChanged.connect(self.guardar)
         form.addRow("Ganancia por defecto:", self.margen)
@@ -1423,7 +1435,9 @@ class PestanaEmpresa(QWidget):
         lsep.addWidget(separador)
         form.addRow(caja_sep)
         form.addRow("Hoja membretada:", fm)
-        form.addRow("Marca de agua:", fma)
+        form.addRow("Marca de agua:", self.marca_agua)
+        form.addRow("Intensidad del fondo:", fint)
+        form.addRow("Tamaño del logo:", ftam)
         nota = QLabel("Las condiciones del servicio se eligen en cada proforma; los adicionales rápidos están en la "
                       "pestaña «Adicionales».")
         nota.setWordWrap(True)
@@ -1495,9 +1509,15 @@ class PestanaEmpresa(QWidget):
         self.memb_inf.setValue(e.membrete_inf)
         self.marca_agua.setChecked(e.marca_agua)
         self.intensidad.setValue(e.marca_agua_intensidad)
+        self.tamano.setValue(round(e.marca_agua_tamano))
+        self.l_tamano.setText(f"{round(e.marca_agua_tamano)} %")
         self._cargando = False
         self._mostrar_logo()
         self._mostrar_membrete()
+
+    def _tamano_movido(self, valor: int) -> None:
+        self.l_tamano.setText(f"{valor} %")
+        self.guardar()
 
     def _mostrar_membrete(self) -> None:
         ruta = self.datos.ruta_foto(self.datos.empresa.membrete)
@@ -1508,6 +1528,7 @@ class PestanaEmpresa(QWidget):
         for w in (self.memb_sup, self.memb_inf):
             w.setEnabled(bool(ruta))
         self.marca_agua.setEnabled(not ruta)
+        self.tamano.setEnabled(not ruta)
         self.marca_agua.setToolTip("Con hoja membretada no se usa la marca de agua" if ruta else
                                    "El logo sale tenue en el centro de cada página del PDF")
 
@@ -1608,6 +1629,7 @@ class PestanaEmpresa(QWidget):
         e.validez_dias = self.validez.value()
         e.membrete_sup, e.membrete_inf = self.memb_sup.value(), self.memb_inf.value()
         e.marca_agua, e.marca_agua_intensidad = self.marca_agua.isChecked(), self.intensidad.value()
+        e.marca_agua_tamano = float(self.tamano.value())
         self.datos.guardar()
         it = self.lista.currentItem()
         if it is not None:

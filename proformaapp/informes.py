@@ -216,11 +216,11 @@ def pdf_cliente(proforma: Proforma, datos: Datos, destino: Path) -> Path:
             p.setOpacity(opacidad)
             if membrete:
                 destino_fondo = pagina                           # la hoja membretada ocupa toda la página
-            else:                                                # el logo: centrado, 70 % del ancho
-                w = pagina.width() * 0.7
+            else:                                                # el logo: centrado, del tamaño elegido
+                w = pagina.width() * max(10.0, min(100.0, e.marca_agua_tamano)) / 100
                 h = w * fondo.height() / fondo.width()
-                if h > pagina.height() * 0.6:
-                    h = pagina.height() * 0.6
+                if h > pagina.height() * 0.95:
+                    h = pagina.height() * 0.95
                     w = h * fondo.width() / fondo.height()
                 destino_fondo = QRectF(0, 0, w, h)
                 destino_fondo.moveCenter(pagina.center())

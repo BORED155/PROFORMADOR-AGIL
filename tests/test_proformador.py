@@ -583,6 +583,11 @@ def test_pdf_hoja_membretada_y_marca_de_agua(datos, tmp_path):
     con = informes.pdf_cliente(p, datos, tmp_path / "marca.pdf")
     c = _pixel_pdf(con, 0.5, 0.5)
     assert c.red() > 240 and 180 < c.green() < 230               # rojo al 20 %: rosado
+    # tamaño del logo: chico (20 %) no llega a 0,3 del ancho; grande (100 %) sí
+    e.marca_agua_tamano = 20
+    assert _pixel_pdf(informes.pdf_cliente(p, datos, tmp_path / "chico.pdf"), 0.3, 0.5).name() == "#ffffff"
+    e.marca_agua_tamano = 100
+    assert _pixel_pdf(informes.pdf_cliente(p, datos, tmp_path / "grande.pdf"), 0.05, 0.5).name() != "#ffffff"
     # hoja membretada azul: cubre toda la hoja (esquinas incluidas) y reemplaza la marca de agua
     hoja = QImage(210, 297, QImage.Format_RGB32)
     hoja.fill(QColor("#0000ff"))
@@ -620,5 +625,8 @@ def test_empresa_membrete_desde_pdf(datos, tmp_path):
     assert e.marca_agua_intensidad == 100 and pe.intensidad.value() == 100
     pe.memb_sup.setValue(55)
     assert type(datos)(datos.carpeta).empresa.membrete_sup == 55
+    assert not pe.tamano.isEnabled()
     pe.quitar_membrete()
-    assert e.membrete == "" and pe.marca_agua.isEnabled()
+    assert e.membrete == "" and pe.marca_agua.isEnabled() and pe.tamano.isEnabled()
+    pe.tamano.setValue(45)
+    assert pe.l_tamano.text() == "45 %" and type(datos)(datos.carpeta).empresa.marca_agua_tamano == 45

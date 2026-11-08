@@ -106,6 +106,7 @@ class Empresa:
     membrete_inf: float = 25.0
     marca_agua: bool = False          # sin membrete: el logo va de fondo, tenue, en cada página
     marca_agua_intensidad: float = 8.0   # % de opacidad
+    marca_agua_tamano: float = 70.0      # % del ancho de la hoja que ocupa el logo de fondo
 
 
 @dataclass
