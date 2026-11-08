@@ -1390,7 +1390,7 @@ class PestanaEmpresa(QWidget):
         self.intensidad.setToolTip("Qué tan visible queda el fondo del PDF: la hoja membretada o el logo como "
                                    "marca de agua (100 % = colores originales; 8 % = muy suave)")
         self.intensidad.valueChanged.connect(self.guardar)
-        b_ejemplo = QPushButton("Ver ejemplo en PDF")
+        b_ejemplo = QPushButton("Previsualización")
         b_ejemplo.setObjectName("azul")
         b_ejemplo.setToolTip("Arma un PDF de prueba con esta empresa para ver cómo queda")
         b_ejemplo.clicked.connect(self.ver_ejemplo)
@@ -1529,7 +1529,7 @@ class PestanaEmpresa(QWidget):
         self.datos.empresa.marca_agua_intensidad = 100.0      # el membrete se ve completo; se puede bajar después
         self.datos.guardar()
         self.mostrar()
-        self.v.statusBar().showMessage("Hoja membretada guardada. Use «Ver ejemplo en PDF» para ajustar los "
+        self.v.statusBar().showMessage("Hoja membretada guardada. Use «Previsualización» para ajustar los "
                                        "espacios.", 8000)
 
     def quitar_membrete(self) -> None:
