@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QHeaderView, QProxyStyle,
                                QStyle, QTableWidget, QTableWidgetItem, QWidget)
 
+from . import temas
 from ..informes import dinero, numero  # noqa: F401 - las pestañas los toman de aquí
 from ..modelo import iva_texto, leer_iva
 from ..modelo import sin_tildes as normalizar  # noqa: F401
@@ -49,6 +50,7 @@ def spin(minimo=0.0, maximo=1e7, decimales=2, sufijo="") -> QDoubleSpinBox:
     s.setDecimals(decimales)
     s.setSuffix(sufijo)
     s.setMinimumWidth(90)
+    s.lineEdit().setTextMargins(temas.S, 0, 0, 0)     # Qt ignora el «padding» de estos campos
     return s
 
 
@@ -103,7 +105,7 @@ class Interruptor(QCheckBox):
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
         r = self.rect().adjusted(1, 1, -1, -1)
-        p.setBrush(QColor("#2e7d32") if self.isChecked() else QColor("#cfd8dc"))
+        p.setBrush(QColor(temas.color("btn_exito" if self.isChecked() else "control")))
         p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
         d = r.height() - 6
         x = r.right() - d - 3 if self.isChecked() else r.left() + 3
@@ -125,6 +127,11 @@ class EstiloCasillas(QProxyStyle):
     def pixelMetric(self, metrica, opcion=None, widget=None):
         if metrica in (QStyle.PM_IndicatorWidth, QStyle.PM_IndicatorHeight):
             return self.LADO
+        if metrica in (QStyle.PM_LayoutHorizontalSpacing, QStyle.PM_LayoutVerticalSpacing):
+            return temas.S
+        if metrica in (QStyle.PM_LayoutLeftMargin, QStyle.PM_LayoutRightMargin, QStyle.PM_LayoutTopMargin,
+                       QStyle.PM_LayoutBottomMargin):
+            return temas.L
         return super().pixelMetric(metrica, opcion, widget)
 
     def drawPrimitive(self, elemento, opcion, pintor, widget=None):
@@ -143,7 +150,8 @@ def pintar_casilla(p: QPainter, rect: QRectF, marcada: bool, activa: bool = True
     p.setRenderHint(QPainter.Antialiasing)
     if marcada:
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#2e7d32" if activa else "#a5d6a7"))
+        verde = temas.color("btn_exito")
+        p.setBrush(QColor(verde if activa else temas.mezcla(verde, temas.color("superficie"), 0.45)))
         p.drawRoundedRect(r, 4, 4)
         trazo = QPainterPath(QPointF(r.left() + r.width() * 0.22, r.top() + r.height() * 0.52))
         trazo.lineTo(r.left() + r.width() * 0.42, r.top() + r.height() * 0.72)
@@ -152,8 +160,8 @@ def pintar_casilla(p: QPainter, rect: QRectF, marcada: bool, activa: bool = True
         p.setBrush(Qt.NoBrush)
         p.drawPath(trazo)
     else:
-        p.setPen(QPen(QColor("#78909c" if activa else "#cfd8dc"), 1.6))
-        p.setBrush(QColor("white"))
+        p.setPen(QPen(QColor(temas.color("control" if activa else "borde")), 1.6))
+        p.setBrush(QColor(temas.color("superficie")))
         p.drawRoundedRect(r, 4, 4)
     p.restore()
 
@@ -173,6 +181,7 @@ def tabla(columnas: list[str]) -> QTableWidget:
     t.setSelectionBehavior(QAbstractItemView.SelectRows)
     t.setAlternatingRowColors(False)
     t.setShowGrid(False)
+    t.verticalHeader().setDefaultSectionSize(temas.ALTO_FILA)
     t.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
     for c in range(1, len(columnas)):
         t.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeToContents)

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDateEdit, QDialog,
 from .. import comprobantes
 from ..informes import fecha_corta
 from ..modelo import CATEGORIAS_GASTO, ESTADOS_GASTO, Gasto, nuevo_id, redondear
+from . import temas
 from .comun import abrir_archivo, dinero, item_texto, leer_numero, numero, spin, tabla
 
 COLUMNAS = [("Fecha", "fecha"), ("Proveedor", "proveedor"), ("RUC", "ruc"), ("Documento", "documento"),
@@ -62,7 +63,8 @@ class DialogoGasto(QDialog):
             form.addRow(etiqueta, w)
         if g.origen == "pdf":
             aviso = QLabel("Datos leídos del PDF: revíselos antes de guardar.")
-            aviso.setStyleSheet("color: #e65100; font-weight: bold")
+            temas.rol(aviso, "subtitulo")
+            temas.tono(aviso, "aviso")
             form.addRow("", aviso)
         botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         botones.button(QDialogButtonBox.Ok).setText("Guardar")
@@ -105,27 +107,27 @@ class PestanaCostos(QWidget):
         sel.addWidget(t)
         sel.addWidget(self.proforma, 1)
         nota = QLabel("Solo aparecen las proformas guardadas.")
-        nota.setStyleSheet("color: #546e7a")
+        temas.rol(nota, "nota")
         sel.addWidget(nota)
 
         # --- tarjetas de control ---
         tarjeta = QFrame()
         tarjeta.setObjectName("tarjeta")
         g = QGridLayout(tarjeta)
-        g.setContentsMargins(14, 8, 14, 8)
+        g.setContentsMargins(temas.L, temas.M, temas.L, temas.M)
         self.cifras = {}
         for col, (clave, texto, color) in enumerate((
-                ("contrato", "Contrato (paga el cliente)", "#0d47a1"),
-                ("presupuesto", "Costo presupuestado", "#37474f"),
-                ("gastado", "Gastado hasta hoy", "#c62828"),
-                ("pendiente", "Por pagar (pendiente)", "#e65100"),
-                ("resultado", "Ganancia / pérdida", "#2e7d32"))):
+                ("contrato", "Contrato (paga el cliente)", "acento"),
+                ("presupuesto", "Costo presupuestado", "neutro"),
+                ("gastado", "Gastado hasta hoy", "peligro"),
+                ("pendiente", "Por pagar (pendiente)", "aviso"),
+                ("resultado", "Ganancia / pérdida", "exito"))):
             lt = QLabel(texto)
             lt.setAlignment(Qt.AlignCenter)
             lc = QLabel()
             lc.setObjectName("cifra")
             lc.setAlignment(Qt.AlignCenter)
-            lc.setStyleSheet(f"color: {color}")
+            temas.tono(lc, color)
             g.addWidget(lt, 0, col)
             g.addWidget(lc, 1, col)
             self.cifras[clave] = lc
@@ -135,7 +137,7 @@ class PestanaCostos(QWidget):
         g.addWidget(self.barra, 2, 0, 1, 5)
         self.lbl_estado = QLabel()
         self.lbl_estado.setAlignment(Qt.AlignCenter)
-        self.lbl_estado.setStyleSheet("font-weight: bold")
+        temas.rol(self.lbl_estado, "subtitulo")
         g.addWidget(self.lbl_estado, 3, 0, 1, 5)
 
         # --- tabla de gastos ---
@@ -150,10 +152,10 @@ class PestanaCostos(QWidget):
         b_manual.setObjectName("verde")
         b_manual.clicked.connect(self.agregar_manual)
         b_xml = QPushButton("Cargar factura XML…")
-        b_xml.setObjectName("azul")
+        b_xml.setObjectName("verde")
         b_xml.clicked.connect(self.cargar_xml)
         b_pdf = QPushButton("Cargar PDF…")
-        b_pdf.setObjectName("azul")
+        b_pdf.setObjectName("verde")
         b_pdf.clicked.connect(self.cargar_pdf)
         b_abrir = QPushButton("Ver comprobante")
         b_abrir.clicked.connect(self.ver_comprobante)
@@ -237,7 +239,7 @@ class PestanaCostos(QWidget):
                 it = item_texto(texto, editable, a in NUMEROS)
                 it.setData(Qt.UserRole, g.id)
                 if a == "estado" and g.estado == "PENDIENTE":
-                    it.setForeground(QBrush(QColor("#e65100")))
+                    it.setForeground(QBrush(QColor(temas.color("aviso"))))
                 self.t.setItem(f, c, it)
         self._cargando = False
 
@@ -253,27 +255,25 @@ class PestanaCostos(QWidget):
         self.cifras["pendiente"].setText(dinero(pendiente))
         r = self.cifras["resultado"]
         r.setText(dinero(resultado))
-        r.setStyleSheet(f"color: {'#2e7d32' if resultado >= 0 else '#c62828'}")
+        temas.tono(r, "exito" if resultado >= 0 else "peligro")
         usado = gastado / presupuesto * 100 if presupuesto else 0
         self.barra.setMaximum(100)
         self.barra.setValue(int(min(usado, 100)))
         self.barra.setFormat(f"{usado:.2f} % del costo presupuestado".replace(".", ","))
-        self.barra.setStyleSheet("QProgressBar::chunk { background: %s; border-radius: 4px; }"
-                                 % ("#c62828" if usado > 100 else "#e65100" if usado > 90 else "#2e7d32"))
+        temas.tono(self.barra, "peligro" if usado > 100 else "aviso" if usado > 90 else "exito")
         if not p:
             self.lbl_estado.setText("Guarde una proforma para poder controlar sus gastos.")
-            self.lbl_estado.setStyleSheet("font-weight: bold; color: #546e7a")
+            temas.tono(self.lbl_estado, "neutro")
         elif resultado < 0:
             self.lbl_estado.setText(f"PÉRDIDA: los gastos superan lo que paga el cliente en {dinero(-resultado)}.")
-            self.lbl_estado.setStyleSheet("font-weight: bold; color: #c62828")
+            temas.tono(self.lbl_estado, "peligro")
         else:
             margen = resultado / contrato * 100 if contrato else 0
             extra = (f"  ·  Se pasó del costo presupuestado en {dinero(gastado - presupuesto)}"
                      if gastado > presupuesto else
                      f"  ·  Quedan {dinero(presupuesto - gastado)} del costo presupuestado")
             self.lbl_estado.setText(f"GANANCIA hasta ahora: {dinero(resultado)} ({numero(margen)} % del contrato){extra}")
-            self.lbl_estado.setStyleSheet("font-weight: bold; color: %s" %
-                                          ("#e65100" if gastado > presupuesto else "#2e7d32"))
+            temas.tono(self.lbl_estado, "aviso" if gastado > presupuesto else "exito")
 
         por_cat: dict[str, float] = {}
         for g in gs:

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from ..modelo import Adicional, redondear
+from . import temas
 from .comun import Interruptor, centrado, dinero, item_texto, leer_numero, numero, tabla
 
 
@@ -27,9 +28,10 @@ class PestanaAdicionales(QWidget):
         self.t = tabla(["Adicional", "Cant.", "Costo unit.", "Precio unit.", "Total cliente",
                         "Repartir en los módulos"])
         self.t.setEditTriggers(QAbstractItemView.AllEditTriggers)
-        self.t.verticalHeader().setDefaultSectionSize(34)
+        self.t.verticalHeader().setDefaultSectionSize(temas.ALTO_FILA)
         self.t.itemChanged.connect(self._editado)
         self.b_agregar = QToolButton()
+        self.b_agregar.setObjectName("verde")
         self.b_agregar.setText("＋ Agregar adicional  ▾")
         self.b_agregar.setPopupMode(QToolButton.InstantPopup)
         self.b_agregar.setMenu(QMenu(self.b_agregar))
@@ -38,26 +40,27 @@ class PestanaAdicionales(QWidget):
         b_quitar.setObjectName("rojo")
         b_quitar.clicked.connect(self.quitar)
         b_volver = QPushButton("Volver a la proforma")
-        b_volver.setObjectName("azul")
         b_volver.clicked.connect(lambda: self.v.pestanas.setCurrentWidget(self.v.pest_proforma))
         ayuda = QLabel("«Repartir en los módulos» (verde): el adicional no sale como línea aparte en la proforma; su "
                        "precio se suma a los módulos en proporción al precio de cada uno (ej.: 100 entre módulos de 60 y 40 → 60 y 40).")
         ayuda.setWordWrap(True)
-        ayuda.setStyleSheet("color: #546e7a")
+        temas.rol(ayuda, "nota")
 
         # --- cómo se reparte ---
         self.t_rep = tabla(["Módulo", "Cant.", "% del precio", "Monto repartido", "Precio unit. final",
                             "Total cliente"])
         self.t_rep.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.lbl_resumen = QLabel()
-        self.lbl_resumen.setStyleSheet("font-weight: bold; color: #37474f")
+        temas.rol(self.lbl_resumen, "subtitulo")
 
         # --- adicionales rápidos (plantillas) ---
         self.t_plant = tabla(["Adicional rápido", "Costo", "Cantidad automática"])
         self.t_plant.itemChanged.connect(self._plantilla_editada)
         b_pl = QPushButton("Agregar")
+        b_pl.setObjectName("verde")
         b_pl.clicked.connect(self._agregar_plantilla)
         b_pl_q = QPushButton("Quitar")
+        b_pl_q.setObjectName("rojo")
         b_pl_q.clicked.connect(self._quitar_plantilla)
 
         arriba = QWidget()

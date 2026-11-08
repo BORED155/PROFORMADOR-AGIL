@@ -319,6 +319,7 @@ class Datos:
         self.comprobantes.mkdir(exist_ok=True)
         self.empresas: list[Empresa] = []
         self.empresa_activa = ""
+        self.tema = "claro"                                    # estilo de la pantalla
         self.condiciones: list[str] = list(CONDICIONES)        # catálogo de condiciones del servicio
         self.plantillas: list[dict] = [dict(p) for p in PLANTILLAS]
         self.gastos: list[Gasto] = []
@@ -356,6 +357,7 @@ class Datos:
             raise ValueError(f"No se pudo leer {self.archivo} ({e}). No se cambió nada; en la carpeta «respaldos», "
                              "junto a ese archivo, hay copias de días anteriores.") from e
         version = d.get("version", 1)
+        self.tema = d.get("tema", "claro")
         campos = Empresa.__annotations__
         if "empresas" in d:
             self.empresas = [Empresa(**{k: v for k, v in e.items() if k in campos}) for e in d["empresas"]]
@@ -400,7 +402,7 @@ class Datos:
         self.gastos = [Gasto(**g) for g in d.get("gastos", [])]
 
     def guardar(self) -> None:
-        datos = {"version": 3, "empresas": [asdict(e) for e in self.empresas],
+        datos = {"version": 3, "tema": self.tema, "empresas": [asdict(e) for e in self.empresas],
                  "empresa_activa": self.empresa_activa, "condiciones": self.condiciones,
                  "plantillas": self.plantillas,
                  "materiales": [asdict(m) for m in self.materiales],

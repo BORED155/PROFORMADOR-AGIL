@@ -7,7 +7,7 @@ import datetime as dt
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QEvent, QModelIndex, Qt, QTimer
+from PySide6.QtCore import QDate, QEvent, QModelIndex, QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
@@ -21,37 +21,7 @@ from ..importar import exportar_materiales, importar
 from ..modelo import (OPCIONALES, Cliente, Datos, Empresa, Item, Material,
                       Modulo, Proforma, nuevo_id, redondear, separar_descripcion, unir_descripcion)
 
-ESTILO = """
-QMainWindow, QDialog { background: #f5f7f9; }
-QTabWidget::pane { border: 1px solid #cfd8dc; border-radius: 12px; background: white; top: -1px; }
-QTabBar::tab { background: #eceff1; color: #37474f; border: 1px solid #cfd8dc; padding: 8px 18px; margin-right: 4px;
-               border-top-left-radius: 10px; border-top-right-radius: 10px; }
-QTabBar::tab:selected { background: white; color: #0d47a1; font-weight: bold; border-bottom-color: white; }
-QTableWidget, QListWidget, QPlainTextEdit { border: 1px solid #cfd8dc; border-radius: 10px; background: white;
-                                            selection-background-color: #1565c0; selection-color: white; }
-QListWidget::item { padding: 5px 4px; }
-QHeaderView::section { background: white; border: none; border-bottom: 1px solid #cfd8dc; padding: 6px;
-                       font-weight: bold; color: #37474f; }
-QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QDateEdit { border: 1px solid #cfd8dc; border-radius: 8px;
-                                                            padding: 4px 8px; background: white; }
-QAbstractSpinBox QLineEdit, QComboBox QLineEdit, QDateEdit QLineEdit { border: none; padding: 0; background: transparent; }
-QPushButton { border: 1px solid #cfd8dc; border-radius: 8px; padding: 6px 14px; background: white; }
-QPushButton:hover { border-color: #1565c0; }
-QPushButton#verde { background: #2e7d32; color: white; border: none; font-weight: bold; }
-QPushButton#verde:hover { background: #43a047; }
-QPushButton#azul { background: #1565c0; color: white; border: none; font-weight: bold; }
-QPushButton#azul:hover { background: #1e88e5; }
-QPushButton#rojo { background: #c62828; color: white; border: none; font-weight: bold; }
-QPushButton#rojo:hover { background: #e53935; }
-QFrame#tarjeta { background: white; border: 1px solid #cfd8dc; border-radius: 12px; }
-QLabel#titulo { font-size: 15px; font-weight: bold; color: #0d47a1; }
-QLabel#cifra { font-size: 20px; font-weight: bold; }
-QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
-QScrollBar::handle:vertical { background: #b0bec5; border-radius: 4px; min-height: 30px; }
-QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
-"""
-
-
+from . import temas
 from .adicionales import PestanaAdicionales
 from .comun import (ComboIva, ItemOrdenable, numero, abrir_archivo, pdf_a_imagen, carpeta_proformas, dinero, item_texto, leer_numero,
                     normalizar, spin, tabla)
@@ -73,7 +43,6 @@ class PestanaProforma(QWidget):
         self.buscar = QLineEdit()
         self.buscar.setPlaceholderText("🔍  Buscar módulo…  (Ctrl+F)")
         self.buscar.setClearButtonEnabled(True)
-        self.buscar.setMinimumHeight(34)
         self.buscar.textChanged.connect(self.filtrar)
         self.buscar.returnPressed.connect(self.agregar_elegido)
         self.buscar.installEventFilter(self)
@@ -81,7 +50,7 @@ class PestanaProforma(QWidget):
         self.catalogo = QTableWidget(0, 2)
         self.catalogo.setHorizontalHeaderLabels(["Módulo", "Costo"])
         self.catalogo.verticalHeader().setVisible(False)
-        self.catalogo.verticalHeader().setDefaultSectionSize(30)
+        self.catalogo.verticalHeader().setDefaultSectionSize(temas.ALTO_FILA)
         self.catalogo.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.catalogo.setSelectionMode(QAbstractItemView.SingleSelection)
         self.catalogo.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -92,17 +61,17 @@ class PestanaProforma(QWidget):
         self.catalogo.setColumnWidth(1, 105)
         self.catalogo.cellDoubleClicked.connect(lambda *_a: self.agregar_elegido())
         b_agregar = QPushButton("Agregar a la proforma  ➜")
-        b_agregar.setObjectName("azul")
+        b_agregar.setObjectName("verde")
         b_agregar.clicked.connect(self.agregar_elegido)
         caja_cat = QWidget()
         lc = QVBoxLayout(caja_cat)
-        lc.setContentsMargins(0, 0, 10, 0)
+        lc.setContentsMargins(0, 0, temas.S, 0)
         t_cat = QLabel("Módulos")
         t_cat.setObjectName("titulo")
         ayuda = QLabel("Escriba para filtrar · ↑↓ para moverse · Enter o doble clic agrega. "
                        "Las recetas se arman en la pestaña «Módulos».")
         ayuda.setWordWrap(True)
-        ayuda.setStyleSheet("color: #546e7a; font-size: 11px")
+        temas.rol(ayuda, "ayuda")
         lc.addWidget(t_cat)
         lc.addWidget(self.buscar)
         lc.addWidget(ayuda)
@@ -116,6 +85,7 @@ class PestanaProforma(QWidget):
         self.cliente.setMinimumWidth(240)
         self.cliente.currentIndexChanged.connect(self._cambio)
         b_cliente = QPushButton("Nuevo cliente…")
+        b_cliente.setObjectName("verde")
         b_cliente.clicked.connect(self.nuevo_cliente)
         self.titulo = QLineEdit()
         self.titulo.setPlaceholderText("Ej.: Proforma para exhibición de fregaderos - MegaKywi Los Chillos")
@@ -150,13 +120,12 @@ class PestanaProforma(QWidget):
         b_quitar.setObjectName("rojo")
         b_quitar.clicked.connect(self.quitar_modulo)
         b_editar = QPushButton("✎  Editar receta en Módulos")
-        b_editar.setObjectName("azul")
         b_editar.setToolTip("Abre la pestaña Módulos con este módulo para cambiar su receta")
         b_editar.clicked.connect(self.editar_en_modulos)
 
         # --- resumen de adicionales (se editan en la pestaña «Adicionales») ---
         self.lbl_adic = QLabel()
-        self.lbl_adic.setStyleSheet("color: #37474f")
+        temas.rol(self.lbl_adic, "nota")
         self.lbl_adic.setWordWrap(True)
         b_adic = QPushButton("Adicionales…")
         b_adic.setToolTip("Logo, transporte, viáticos… y repartirlos entre los módulos")
@@ -175,11 +144,10 @@ class PestanaProforma(QWidget):
         self.b_imagen.clicked.connect(self.elegir_imagen)
         self.notas = QPlainTextEdit()
         self.notas.setPlaceholderText("Nota para el cliente (opcional, sale en el PDF). Puede escribir varias líneas.")
-        self.notas.setFixedHeight(96)
+        self.notas.setFixedHeight(4 * temas.XL + temas.XS + temas.ALTO_FILA)      # como condiciones + su fila de agregar
         self.l_cond = QListWidget()
-        self.l_cond.setFixedHeight(102)
-        self.l_cond.setStyleSheet("QListWidget::item { padding: 3px 4px; } QListWidget { selection-background-color: "
-                                  "#e3f2fd; selection-color: #0d47a1; }")
+        self.l_cond.setFixedHeight(4 * temas.XL)
+        self.l_cond.setObjectName("condiciones")
         self.l_cond.setToolTip("Marque la casilla para que la condición salga en esta proforma.\n"
                                "Doble clic (o «Editar») para corregir el texto.")
         self.l_cond.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
@@ -188,19 +156,21 @@ class PestanaProforma(QWidget):
         self.nueva_cond.setPlaceholderText("Escriba una condición nueva y presione Enter…")
         self.nueva_cond.returnPressed.connect(self.agregar_condicion)
         b_cond = QPushButton("Agregar")
+        b_cond.setObjectName("verde")
         b_cond.clicked.connect(self.agregar_condicion)
         b_cond_e = QPushButton("Editar")
         b_cond_e.setToolTip("Corrige el texto de la condición elegida (también con doble clic)")
         b_cond_e.clicked.connect(self.editar_condicion)
         b_cond_q = QPushButton("Quitar")
+        b_cond_q.setObjectName("rojo")
         b_cond_q.setToolTip("Quita la condición elegida de la lista (para todas las proformas nuevas)")
         b_cond_q.clicked.connect(self.quitar_condicion)
         caja_cond = QWidget()
         lcd = QVBoxLayout(caja_cond)
         lcd.setContentsMargins(0, 0, 0, 0)
-        lcd.setSpacing(3)
+        lcd.setSpacing(temas.XS)
         tc = QLabel("Condiciones del servicio (marque las que van en esta proforma)")
-        tc.setStyleSheet("font-weight: bold; color: #37474f")
+        temas.rol(tc, "subtitulo")
         lcd.addWidget(tc)
         lcd.addWidget(self.l_cond)
         fcd = QHBoxLayout()
@@ -213,8 +183,7 @@ class PestanaProforma(QWidget):
         opciones = QHBoxLayout()
         opciones.addWidget(QLabel("Ganancia:"))
         opciones.addWidget(self.margen)
-        opciones.addSpacing(10)
-        opciones.addSpacing(10)
+        opciones.addSpacing(temas.L)
         opciones.addWidget(self.iva)
         opciones.addStretch(1)
         opciones.addWidget(self.con_imagenes)
@@ -224,21 +193,21 @@ class PestanaProforma(QWidget):
         tarjeta = QFrame()
         tarjeta.setObjectName("tarjeta")
         res = QHBoxLayout(tarjeta)
-        res.setContentsMargins(14, 6, 14, 6)
+        res.setContentsMargins(temas.L, temas.S, temas.L, temas.S)
         self.lbl_costo, self.lbl_cliente, self.lbl_ganancia = QLabel(), QLabel(), QLabel()
-        for texto, lbl, color in (("Le cuesta a usted:", self.lbl_costo, "#c62828"),
-                                  ("Paga el cliente:", self.lbl_cliente, "#0d47a1"),
-                                  ("Su ganancia:", self.lbl_ganancia, "#2e7d32")):
+        for texto, lbl, color in (("Le cuesta a usted:", self.lbl_costo, "peligro"),
+                                  ("Paga el cliente:", self.lbl_cliente, "acento"),
+                                  ("Su ganancia:", self.lbl_ganancia, "exito")):
             res.addWidget(QLabel(texto))
             lbl.setObjectName("cifra")
-            lbl.setStyleSheet(f"color: {color}")
+            temas.tono(lbl, color)
             res.addWidget(lbl)
             lbl.setMinimumWidth(150)          # que el cambio de cifras no mueva lo demás
-            res.addSpacing(18)
+            res.addSpacing(temas.L)
         res.addStretch(1)
         # resumen en su propia fila, de alto fijo: su largo no cambia el tamaño de nada
         self.lbl_detalle = QLabel()
-        self.lbl_detalle.setStyleSheet("color: #546e7a")
+        temas.rol(self.lbl_detalle, "nota")
         self.lbl_detalle.setWordWrap(False)
         self.lbl_detalle.setFixedHeight(20)
         self.lbl_detalle.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
@@ -248,7 +217,7 @@ class PestanaProforma(QWidget):
         b_guardar = QPushButton("Guardar")
         b_guardar.clicked.connect(self.guardar)
         b_pdf = QPushButton("📄  PDF para el cliente")
-        b_pdf.setObjectName("azul")
+        b_pdf.setObjectName("verde")
         b_pdf.clicked.connect(self.generar_pdf)
         b_excel = QPushButton("📊  Excel de costos (mío)")
         b_excel.setObjectName("verde")
@@ -267,7 +236,7 @@ class PestanaProforma(QWidget):
         fila_items.addWidget(b_quitar)
         bloque_items = QWidget()
         lbi = QVBoxLayout(bloque_items)
-        lbi.setContentsMargins(14, 0, 0, 0)
+        lbi.setContentsMargins(temas.S, 0, 0, 0)
         lbi.addLayout(fila_items)
         lbi.addWidget(self.t_items, 1)
         fila_ad = QHBoxLayout()
@@ -279,12 +248,20 @@ class PestanaProforma(QWidget):
         centro.addWidget(caja_cat)
         centro.addWidget(derecha)
         centro.setChildrenCollapsible(False)
-        centro.setHandleWidth(10)
+        centro.setHandleWidth(temas.S)
         centro.setSizes([400, 900])
         ld.addWidget(centro, 1)
         ld.addLayout(opciones)
         fila_notas = QHBoxLayout()
-        fila_notas.addWidget(self.notas, 1)
+        caja_notas = QWidget()
+        lno = QVBoxLayout(caja_notas)
+        lno.setContentsMargins(0, 0, 0, 0)
+        lno.setSpacing(temas.XS)
+        tn = QLabel("Nota para el cliente")
+        temas.rol(tn, "subtitulo")
+        lno.addWidget(tn)
+        lno.addWidget(self.notas)
+        fila_notas.addWidget(caja_notas, 1)
         fila_notas.addWidget(caja_cond, 1)
         ld.addLayout(fila_notas)
         abajo = QHBoxLayout()
@@ -675,7 +652,6 @@ class PestanaHistorial(QWidget):
         self.t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.t.doubleClicked.connect(lambda _i: self.abrir())
         b_abrir = QPushButton("Abrir")
-        b_abrir.setObjectName("azul")
         b_abrir.clicked.connect(self.abrir)
         b_dup = QPushButton("Duplicar con precios actuales")
         b_dup.clicked.connect(self.duplicar)
@@ -763,6 +739,7 @@ class PestanaModulos(QWidget):
         self.lista = QListWidget()
         self.lista.currentRowChanged.connect(self.mostrar)
         b_nuevo = QPushButton("Nuevo módulo")
+        b_nuevo.setObjectName("verde")
         b_nuevo.clicked.connect(self.nuevo)
         b_dup = QPushButton("Duplicar")
         b_dup.clicked.connect(self.duplicar)
@@ -804,7 +781,7 @@ class PestanaModulos(QWidget):
         self.foto = QLabel()
         self.foto.setFixedSize(150, 150)
         self.foto.setAlignment(Qt.AlignCenter)
-        self.foto.setStyleSheet("border: 1px dashed #b0bec5; border-radius: 10px; background: white")
+        temas.rol(self.foto, "foto")
         b_foto = QPushButton("Cambiar foto…")
         b_foto.clicked.connect(self.elegir_foto)
         for w in (self.nombre, self.ancho, self.alto, self.prof):
@@ -852,9 +829,10 @@ class PestanaModulos(QWidget):
         self.completador.popup().setStyleSheet(espaciado)
         self.c_mat.view().setStyleSheet(espaciado)
         b_agregar_mat = QPushButton("Agregar")
-        b_agregar_mat.setObjectName("azul")
+        b_agregar_mat.setObjectName("verde")
         b_agregar_mat.clicked.connect(self._agregar_escrito)
         b_quitar = QPushButton("Quitar material")
+        b_quitar.setObjectName("rojo")
         b_quitar.clicked.connect(self.quitar_material)
         self.lbl_costo = QLabel()
         self.lbl_costo.setObjectName("titulo")
@@ -1082,7 +1060,7 @@ class PestanaTabla(QWidget):
         self.buscar.setClearButtonEnabled(True)
         self.buscar.textChanged.connect(self.filtrar)
         self.lbl_cuenta = QLabel()
-        self.lbl_cuenta.setStyleSheet("color: #546e7a")
+        temas.rol(self.lbl_cuenta, "nota")
         self.t = tabla([c for c, _a in self.columnas])
         self.t.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed |
                                QAbstractItemView.AnyKeyPressed)
@@ -1095,18 +1073,18 @@ class PestanaTabla(QWidget):
         self._orden: tuple[int, Qt.SortOrder] | None = None
         self.t.itemChanged.connect(self._editado)
         b_nuevo = QPushButton("Agregar")
+        b_nuevo.setObjectName("verde")
         b_nuevo.clicked.connect(self.agregar)
         b_borrar = QPushButton("Eliminar")
         b_borrar.setObjectName("rojo")
         b_borrar.clicked.connect(self.eliminar)
         fila = QHBoxLayout()
         nota = QLabel(ayuda)
-        nota.setStyleSheet("color: #546e7a")
+        temas.rol(nota, "nota")
         nota.setWordWrap(True)
         fila.addWidget(nota, 1)
         if importar:
             b_imp = QPushButton("Importar desde Excel…")
-            b_imp.setObjectName("azul")
             b_imp.setToolTip("Agrega los materiales, módulos y clientes NUEVOS de un Excel con hoja RECETA. "
                              "Lo que ya tiene (mismo nombre) no se modifica.")
             b_imp.clicked.connect(lambda: self.v.importar_excel())
@@ -1339,7 +1317,7 @@ class PestanaEmpresa(QWidget):
         self.logo = QLabel()
         self.logo.setFixedSize(220, 120)
         self.logo.setAlignment(Qt.AlignCenter)
-        self.logo.setStyleSheet("border: 1px dashed #b0bec5; border-radius: 10px; background: white")
+        temas.rol(self.logo, "foto")
         b_logo = QPushButton("Elegir logo…")
         b_logo.clicked.connect(self.elegir_logo)
         fl = QHBoxLayout()
@@ -1352,12 +1330,12 @@ class PestanaEmpresa(QWidget):
         self.membrete = QLabel()
         self.membrete.setFixedSize(85, 120)                 # proporción A4
         self.membrete.setAlignment(Qt.AlignCenter)
-        self.membrete.setStyleSheet("border: 1px dashed #b0bec5; border-radius: 6px; background: white; "
-                                    "color: #90a4ae; font-size: 10px")
+        temas.rol(self.membrete, "foto")
         b_memb = QPushButton("Elegir hoja membretada…")
         b_memb.setToolTip("Imagen (PNG/JPG) o PDF de su hoja membretada, tamaño A4. Va de fondo en cada página.")
         b_memb.clicked.connect(self.elegir_membrete)
         self.b_memb_q = QPushButton("Quitar")
+        self.b_memb_q.setObjectName("rojo")
         self.b_memb_q.clicked.connect(self.quitar_membrete)
         self.memb_sup, self.memb_inf = spin(5, 150, 0, " mm"), spin(5, 150, 0, " mm")
         self.memb_sup.setToolTip("Espacio libre arriba para no escribir sobre el encabezado del membrete")
@@ -1380,7 +1358,7 @@ class PestanaEmpresa(QWidget):
         am = QLabel("Si tiene hoja membretada, el PDF se imprime sobre ella (sin repetir logo ni datos de la "
                     "empresa). Ajuste los espacios para no tapar el encabezado y el pie.")
         am.setWordWrap(True)
-        am.setStyleSheet("color: #546e7a; font-size: 11px")
+        temas.rol(am, "ayuda")
         cm.addWidget(am)
         fm = QHBoxLayout()
         fm.addWidget(self.membrete, 0, Qt.AlignTop)
@@ -1394,7 +1372,6 @@ class PestanaEmpresa(QWidget):
                                    "marca de agua (100 % = colores originales; 8 % = muy suave)")
         self.intensidad.valueChanged.connect(self.guardar)
         b_ejemplo = QPushButton("Previsualización")
-        b_ejemplo.setObjectName("azul")
         b_ejemplo.setToolTip("Arma un PDF de prueba con esta empresa para ver cómo queda")
         b_ejemplo.clicked.connect(self.ver_ejemplo)
         fint = QHBoxLayout()
@@ -1413,7 +1390,7 @@ class PestanaEmpresa(QWidget):
         ftam.addWidget(self.tamano, 1)
         ftam.addWidget(QLabel("Grande"))
         ftam.addWidget(self.l_tamano)
-        ftam.addSpacing(12)
+        ftam.addSpacing(temas.M)
         ftam.addWidget(b_ejemplo)
         self.margen = spin(0, 1000, 2, " %")
         self.margen.valueChanged.connect(self.guardar)
@@ -1423,16 +1400,17 @@ class PestanaEmpresa(QWidget):
         form.addRow("IVA por defecto:", self.iva)
         self.validez = QSpinBox()
         self.validez.setRange(0, 365)
+        self.validez.lineEdit().setTextMargins(temas.S, 0, 0, 0)
         self.validez.setSuffix(" días")
         self.validez.setSpecialValueText("no mostrar")
         self.validez.valueChanged.connect(self.guardar)
         form.addRow("Validez de la proforma:", self.validez)
         separador = QFrame()                       # aparta la sección de hoja membretada / marca de agua
-        separador.setFrameShape(QFrame.HLine)
-        separador.setStyleSheet("color: #cfd8dc")
+        separador.setFixedHeight(1)
+        temas.rol(separador, "separador")
         caja_sep = QWidget()
         lsep = QVBoxLayout(caja_sep)
-        lsep.setContentsMargins(0, 14, 0, 10)
+        lsep.setContentsMargins(0, temas.M, 0, temas.M)
         lsep.addWidget(separador)
         form.addRow(caja_sep)
         form.addRow("Hoja membretada:", fm)
@@ -1442,7 +1420,7 @@ class PestanaEmpresa(QWidget):
         nota = QLabel("Las condiciones del servicio se eligen en cada proforma; los adicionales rápidos están en la "
                       "pestaña «Adicionales».")
         nota.setWordWrap(True)
-        nota.setStyleSheet("color: #546e7a")
+        temas.rol(nota, "nota")
         form.addRow("", nota)
         caja = QWidget()
         caja.setMaximumWidth(760)
@@ -1466,7 +1444,7 @@ class PestanaEmpresa(QWidget):
         ayuda = QLabel("Haga clic en una para ver o cambiar sus datos. La elegida (★) es la que se usa en las "
                        "proformas nuevas.")
         ayuda.setWordWrap(True)
-        ayuda.setStyleSheet("color: #546e7a; font-size: 11px")
+        temas.rol(ayuda, "ayuda")
         ld.addWidget(t)
         ld.addWidget(ayuda)
         ld.addWidget(self.lista, 1)
@@ -1477,7 +1455,7 @@ class PestanaEmpresa(QWidget):
 
         lay = QHBoxLayout(self)
         lay.addWidget(caja, 1)
-        lay.addSpacing(16)
+        lay.addSpacing(temas.L)
         lay.addWidget(der)
         self.refrescar()
 
@@ -1646,7 +1624,7 @@ class VentanaPrincipal(QMainWindow):
         from .. import NOMBRE_APP
         self.setWindowTitle(NOMBRE_APP)
         self.resize(1280, 820)
-        self.setStyleSheet(ESTILO)
+        temas.aplicar(self.datos.tema)
         self.pestanas = QTabWidget()
         self.pest_clientes = None
         self.pest_historial = None
@@ -1664,12 +1642,38 @@ class VentanaPrincipal(QMainWindow):
                      (self.pest_historial, "Historial"), (self.pest_costos, "Costo/gasto proyecto")):
             self.pestanas.addTab(w, t)
         self.pestanas.setCurrentWidget(self.pest_proforma)     # abre directo en la proforma
+        self.pestanas.setCornerWidget(self._selector_estilo(), Qt.TopRightCorner)
         self.pestanas.currentChanged.connect(self._cambio_pestana)
         central = QWidget()
         lay = QVBoxLayout(central)
-        lay.setContentsMargins(12, 10, 12, 6)
+        lay.setContentsMargins(temas.M, temas.M, temas.M, temas.M)
         lay.addWidget(self.pestanas)
         self.setCentralWidget(central)
+
+    def _selector_estilo(self) -> QWidget:
+        caja = QWidget()
+        fila = QHBoxLayout(caja)
+        fila.setContentsMargins(temas.S, 0, 0, temas.XS)
+        fila.setSpacing(temas.S)
+        fila.addWidget(QLabel("Estilo:"))
+        self.estilo = QComboBox()
+        self.estilo.setObjectName("estilo")                       # abre debajo: Qt recorta la lista junto al borde
+        self.estilo.setToolTip("Colores del programa. El PDF y el Excel no cambian.")
+        for codigo, t in temas.TEMAS.items():
+            self.estilo.addItem(t["nombre"], codigo)
+            self.estilo.setItemData(self.estilo.count() - 1, QSize(0, temas.ALTO_FILA), Qt.SizeHintRole)
+        self.estilo.setMaxVisibleItems(self.estilo.count())       # todos a la vista, sin barra
+        self.estilo.setMinimumWidth(200)
+        self.estilo.setCurrentIndex(max(0, self.estilo.findData(self.datos.tema)))
+        self.estilo.currentIndexChanged.connect(self._cambiar_estilo)
+        fila.addWidget(self.estilo)
+        return caja
+
+    def _cambiar_estilo(self, *_a) -> None:
+        self.datos.tema = self.estilo.currentData()
+        self.datos.guardar()
+        temas.aplicar(self.datos.tema)
+        self.pest_costos.refrescar_gastos()         # sus filas pendientes llevan color propio
 
     def closeEvent(self, ev) -> None:
         ev.setAccepted(self.pest_proforma.puede_descartar())

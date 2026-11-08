@@ -541,7 +541,8 @@ def test_condiciones_editables_y_casillas_visibles(datos):
     app.processEvents()
     assert datos.condiciones.count("ENTREGA EN BODEGA") == 1 and len(datos.condiciones) == 2
     # la casilla marcada es verde y la vacía blanca
-    for marcada, color in ((True, "#2e7d32"), (False, "#ffffff")):
+    from proformaapp.ui import temas
+    for marcada, color in ((True, temas.color("btn_exito").lower()), (False, temas.color("superficie").lower())):
         img = QImage(20, 20, QImage.Format_ARGB32)
         img.fill(QColor("#ffffff"))
         p = QPainter(img)
@@ -889,3 +890,81 @@ def test_materiales_a_comprar_con_dos_precios(tmp_path):
     x = informes.excel_costos(p, d, tmp_path / "c.xlsx")
     hoja = load_workbook(x)["Materiales a comprar"]
     assert [hoja.cell(f, 5).value for f in (4, 5)] == [70.0, 12.0] and hoja.cell(6, 1).value == "TOTAL MATERIALES Y SERVICIOS"
+
+
+# --- estilos ------------------------------------------------------------------------------------
+def _contraste(a, b):
+    from PySide6.QtGui import QColor
+
+    def lum(c):
+        def canal(v):
+            return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+        return 0.2126 * canal(c.redF()) + 0.7152 * canal(c.greenF()) + 0.0722 * canal(c.blueF())
+    x, y = sorted((lum(QColor(a)), lum(QColor(b))), reverse=True)
+    return (x + 0.05) / (y + 0.05)
+
+
+def test_estilos_con_contraste_accesible():
+    from proformaapp.ui import temas
+    assert len(temas.TEMAS) == 5
+    for codigo, t in temas.TEMAS.items():
+        fondos = ("fondo", "superficie")
+        pares = [("texto", f) for f in (*fondos, "superficie2")] + [("texto2", f) for f in (*fondos, "superficie2")] + \
+                [(n, f) for n in ("acento", "exito", "peligro", "aviso") for f in fondos] + \
+                [("sobre_primario", "primario"), ("sobre_suave", "suave")]
+        for a, b in pares:
+            assert _contraste(t[a], t[b]) >= 4.5, (codigo, a, b, _contraste(t[a], t[b]))
+        fondos_boton = [t[b] for b in ("btn_exito", "btn_exito_hover", "btn_peligro", "btn_peligro_hover")]
+        fondos_boton += temas.botones_neutros(t).values()
+        for fondo in fondos_boton:
+            assert _contraste("#FFFFFF", fondo) >= 4.5, (codigo, fondo)
+        for a, b in [("control", "superficie"), ("foco", "superficie"), ("foco", "fondo")]:
+            assert _contraste(t[a], t[b]) >= 3, (codigo, a, b, _contraste(t[a], t[b]))     # bordes de controles
+        for n in ("exito", "aviso", "peligro"):                                            # texto sobre la barra
+            barra = temas.mezcla(t[n], t["superficie"], 0.45)
+            assert _contraste(t["texto"], barra) >= 4.5, (codigo, n, _contraste(t["texto"], barra))
+
+
+def test_elegir_estilo_se_recuerda_y_aplica(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from proformaapp.ui import temas
+    d = _datos_con_modulo(tmp_path)
+    w = _ventana(d)
+    w.estilo.setCurrentIndex(w.estilo.findData("oscuro"))
+    assert d.tema == "oscuro" and Datos(tmp_path / "d").tema == "oscuro" and temas.color("fondo") == "#111827"
+    assert temas.TEMAS["oscuro"]["acento"].lower() in QApplication.instance().styleSheet().lower()
+    w.close()
+    w2 = _ventana(Datos(tmp_path / "d"))
+    assert w2.estilo.currentData() == "oscuro"
+    assert w2.estilo.maxVisibleItems() == w2.estilo.count() == len(temas.TEMAS)
+    assert "QComboBox#estilo { combobox-popup: 0; }" in QApplication.instance().styleSheet()
+    assert w2.estilo.objectName() == "estilo"
+    w2.close()
+    temas.aplicar("no-existe")
+    assert temas.color("fondo") == temas.TEMAS["claro"]["fondo"]        # un valor raro no rompe la app
+
+
+def test_espaciado_sale_de_la_escala():
+    from PySide6.QtWidgets import QApplication, QStyle
+    QApplication.instance() or QApplication([])
+    from proformaapp.ui.comun import EstiloCasillas
+    from proformaapp.ui import temas
+    e = EstiloCasillas()
+    assert e.pixelMetric(QStyle.PM_LayoutVerticalSpacing) == temas.S
+    assert e.pixelMetric(QStyle.PM_LayoutLeftMargin) == temas.L
+    assert e.pixelMetric(QStyle.PM_IndicatorWidth) == EstiloCasillas.LADO
+
+
+def test_color_de_cada_boton(tmp_path):
+    """Verde: crear, agregar o generar. Rojo: eliminar o quitar. Color del estilo (sin nombre especial): todos los demás."""
+    import re
+    from PySide6.QtWidgets import QAbstractButton, QPushButton, QToolButton
+    w = _ventana(_datos_con_modulo(tmp_path))
+    botones = [b for b in w.findChildren(QAbstractButton) if isinstance(b, (QPushButton, QToolButton)) and b.text()]
+    assert len(botones) > 30
+    for b in botones:
+        t = b.text().lower()
+        esperado = ("verde" if re.search(r"agregar|nuev(?!a proforma)|generar|gasto manual|cargar|pdf para|excel de costos", t) else
+                    "rojo" if re.search(r"eliminar|quitar|borrar", t) else "")
+        assert b.objectName() == esperado or b.objectName().startswith("qt_"), (b.text(), b.objectName())
+    w.close()
